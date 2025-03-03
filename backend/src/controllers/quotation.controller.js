@@ -151,16 +151,56 @@ const quotationController = {
       const { templateId } = req.body;
 
       // Fetch necessary data
-      const quotation = await Quotation.findOne({
-        _id: req.params.id,
-        business: req.user.businessId,
-      }).populate("items.item");
+      const [quotation, business] = await Promise.all([
+        Quotation.findOne({
+          _id: req.params.id,
+          business: req.user.businessId,
+        }).populate("items.item"),
+        require("../models/Business").findById(req.user.businessId),
+      ]);
 
       if (!quotation) {
         return res.status(404).json({
           success: false,
           message: "Quotation not found",
         });
+      }
+
+      // Fetch template if specified
+      let template = null;
+      if (templateId) {
+        try {
+          template = await require("../models/Template").findOne({
+            _id: templateId,
+            businessId: req.user.businessId,
+          });
+        } catch (error) {
+          console.log("Template not found, using default:", error);
+        }
+      }
+
+      // If no specific template found, try to get the default
+      if (!template) {
+        try {
+          template = await require("../models/Template").findOne({
+            businessId: req.user.businessId,
+            isDefault: true,
+            type: "quotation",
+          });
+        } catch (error) {
+          console.log("Default template not found:", error);
+        }
+      }
+
+      // Make sure temp directory exists
+      const tempDir = path.join(__dirname, "..", "temp");
+      try {
+        await fs.promises.mkdir(tempDir, { recursive: true });
+      } catch (err) {
+        console.log(
+          "Temp directory already exists or couldn't be created:",
+          err
+        );
       }
 
       // Create PDF document
@@ -171,12 +211,7 @@ const quotationController = {
       });
 
       // Create a write stream
-      const tempPath = path.join(
-        __dirname,
-        "..",
-        "temp",
-        `${quotation._id}.pdf`
-      );
+      const tempPath = path.join(tempDir, `quotation-${quotation._id}.pdf`);
       const writeStream = fs.createWriteStream(tempPath);
 
       // Set up promise to handle stream completion
@@ -226,26 +261,43 @@ const quotationController = {
         .moveDown();
 
       let row = 0;
-      quotation.items.forEach((item) => {
-        const y = tableTop + (row + 1) * 30;
-        doc
-          .text(item.item.name, itemX, y)
-          .text(item.quantity.toString(), qtyX, y)
-          .text(`KES ${item.unitPrice.toFixed(2)}`, priceX, y)
-          .text(`KES ${item.subtotal.toFixed(2)}`, totalX, y);
-        row++;
-      });
+      // Make sure items exist and have all needed fields
+      if (
+        quotation.items &&
+        Array.isArray(quotation.items) &&
+        quotation.items.length > 0
+      ) {
+        quotation.items.forEach((item) => {
+          if (item && item.item) {
+            const y = tableTop + (row + 1) * 30;
+            doc
+              .text(item.item.name || "Unnamed Item", itemX, y)
+              .text((item.quantity || 0).toString(), qtyX, y)
+              .text(`KES ${(item.unitPrice || 0).toFixed(2)}`, priceX, y)
+              .text(`KES ${(item.subtotal || 0).toFixed(2)}`, totalX, y);
+            row++;
+          }
+        });
+      } else {
+        doc.text("No items", itemX, tableTop + 30);
+        row = 1;
+      }
 
       doc.moveDown(row + 1);
 
       // Add totals
       const totalsX = 300;
       doc
-        .text(`Subtotal: KES ${quotation.subtotal.toFixed(2)}`, totalsX)
-        .text(`Tax: KES ${quotation.taxTotal.toFixed(2)}`, totalsX)
-        .text(`Total: KES ${quotation.total.toFixed(2)}`, totalsX, null, {
-          bold: true,
-        });
+        .text(`Subtotal: KES ${(quotation.subtotal || 0).toFixed(2)}`, totalsX)
+        .text(`Tax: KES ${(quotation.taxTotal || 0).toFixed(2)}`, totalsX)
+        .text(
+          `Total: KES ${(quotation.total || 0).toFixed(2)}`,
+          totalsX,
+          null,
+          {
+            bold: true,
+          }
+        );
 
       // Add terms if exists
       if (quotation.terms) {
@@ -296,7 +348,7 @@ const quotationController = {
       // Clean up after sending
       fileStream.on("end", async () => {
         try {
-          await fs.unlink(tempPath);
+          await fs.promises.unlink(tempPath);
         } catch (err) {
           console.error("Error cleaning up temporary file:", err);
         }

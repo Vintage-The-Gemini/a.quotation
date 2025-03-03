@@ -93,23 +93,33 @@ const QuotationDetail = () => {
       setIsGeneratingPDF(true);
       const toastId = toast.loading("Generating PDF...");
 
-      const { url } = await quotationService.generatePDF(id, selectedTemplate);
+      // Generate PDF using the service
+      const result = await quotationService.generatePDF(id, selectedTemplate);
+
+      if (!result || !result.url) {
+        throw new Error("PDF generation failed: Invalid response from server");
+      }
 
       // Create and trigger download
       const link = document.createElement("a");
-      link.href = url;
+      link.href = result.url;
       link.download = `quotation-${quotation.quotationNumber}.pdf`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
 
       // Cleanup the URL
-      window.URL.revokeObjectURL(url);
+      window.URL.revokeObjectURL(result.url);
 
       toast.dismiss(toastId);
       toast.success("PDF downloaded successfully");
     } catch (error) {
-      toast.error(error.message || "Failed to generate PDF");
+      toast.dismiss();
+      toast.error(
+        typeof error === "string"
+          ? error
+          : error?.message || "Failed to generate PDF"
+      );
       console.error("PDF generation error:", error);
     } finally {
       setIsGeneratingPDF(false);
