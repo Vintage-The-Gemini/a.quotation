@@ -1,8 +1,9 @@
+// backend/src/controllers/quotation.controller.js
 const PDFDocument = require("pdfkit");
 const Quotation = require("../models/Quotation");
 const Template = require("../models/Template");
 const Business = require("../models/Business");
-const fs = require("fs").promises;
+const fs = require("fs");
 const path = require("path");
 
 const quotationController = {
@@ -146,18 +147,22 @@ const quotationController = {
     }
   },
 
+  // Generate PDF
   generatePDF: async (req, res) => {
+    const tempDir = path.join(__dirname, "..", "..", "temp");
+    let tempPath = null;
+
     try {
+      // Ensure temp directory exists
+      await fs.promises.mkdir(tempDir, { recursive: true });
+
       const { templateId } = req.body;
 
-      // Fetch necessary data
-      const [quotation, business] = await Promise.all([
-        Quotation.findOne({
-          _id: req.params.id,
-          business: req.user.businessId,
-        }).populate("items.item"),
-        require("../models/Business").findById(req.user.businessId),
-      ]);
+      // Get quotation with populated items
+      const quotation = await Quotation.findOne({
+        _id: req.params.id,
+        business: req.user.businessId,
+      }).populate("items.item");
 
       if (!quotation) {
         return res.status(404).json({
@@ -166,200 +171,132 @@ const quotationController = {
         });
       }
 
-      // Fetch template if specified
-      let template = null;
-      if (templateId) {
-        try {
-          template = await require("../models/Template").findOne({
-            _id: templateId,
-            businessId: req.user.businessId,
+      // Get business info
+      const business = await Business.findById(req.user.businessId);
+
+      // Generate a unique filename for this PDF
+      const filename = `quotation-${
+        quotation.quotationNumber
+      }-${Date.now()}.pdf`;
+      tempPath = path.join(tempDir, filename);
+
+      // Create a new PDF document
+      const doc = new PDFDocument({ size: "A4", margin: 50 });
+
+      // Create write stream with proper error handling
+      const stream = fs.createWriteStream(tempPath);
+
+      // Set up error handling for the stream
+      stream.on("error", (error) => {
+        console.error("Stream error:", error);
+        if (!res.headersSent) {
+          res.status(500).json({
+            success: false,
+            message: "Error generating PDF: Stream error",
+            error: error.message,
           });
-        } catch (error) {
-          console.log("Template not found, using default:", error);
         }
-      }
-
-      // If no specific template found, try to get the default
-      if (!template) {
-        try {
-          template = await require("../models/Template").findOne({
-            businessId: req.user.businessId,
-            isDefault: true,
-            type: "quotation",
-          });
-        } catch (error) {
-          console.log("Default template not found:", error);
-        }
-      }
-
-      // Make sure temp directory exists
-      const tempDir = path.join(__dirname, "..", "temp");
-      try {
-        await fs.promises.mkdir(tempDir, { recursive: true });
-      } catch (err) {
-        console.log(
-          "Temp directory already exists or couldn't be created:",
-          err
-        );
-      }
-
-      // Create PDF document
-      const doc = new PDFDocument({
-        size: "A4",
-        margin: 50,
-        bufferPages: true, // Enable page buffering
       });
 
-      // Create a write stream
-      const tempPath = path.join(tempDir, `quotation-${quotation._id}.pdf`);
-      const writeStream = fs.createWriteStream(tempPath);
+      // Pipe the PDF to the write stream
+      doc.pipe(stream);
 
-      // Set up promise to handle stream completion
-      const streamComplete = new Promise((resolve, reject) => {
-        writeStream.on("finish", () => resolve(tempPath));
-        writeStream.on("error", reject);
-      });
+      // Add content to the PDF
+      doc.fontSize(16).text("Quotation", { align: "center" });
 
-      // Pipe to write stream
-      doc.pipe(writeStream);
+      doc.fontSize(12).moveDown();
+      doc.text(`Quotation #: ${quotation.quotationNumber}`);
+      doc.text(`Date: ${new Date(quotation.createdAt).toLocaleDateString()}`);
+      doc.text(`Customer: ${quotation.customer.name}`);
 
-      // Add content
-      doc.fontSize(25).text("Quotation", { align: "center" }).moveDown();
+      doc.moveDown();
+      doc.text("Items:", { underline: true });
 
-      // Add quotation details
-      doc
-        .fontSize(12)
-        .text(`Quotation Number: ${quotation.quotationNumber}`)
-        .text(`Date: ${new Date(quotation.createdAt).toLocaleDateString()}`)
-        .text(
-          `Valid Until: ${new Date(quotation.validUntil).toLocaleDateString()}`
-        )
-        .moveDown();
+      // Basic table for items
+      let y = doc.y + 20;
+      doc.fontSize(10);
 
-      // Add customer details
-      doc
-        .text(`Customer: ${quotation.customer.name}`)
-        .text(`Email: ${quotation.customer.email || "N/A"}`)
-        .text(`Phone: ${quotation.customer.phone || "N/A"}`)
-        .moveDown();
+      // Draw simple headers
+      doc.text("Item", 50, y);
+      doc.text("Qty", 200, y);
+      doc.text("Price", 250, y);
+      doc.text("Total", 350, y);
 
-      // Add items table
-      doc.text("Items:", { underline: true }).moveDown();
+      y += 20;
 
-      // Table headers
-      const tableTop = doc.y;
-      const itemX = 50;
-      const qtyX = 200;
-      const priceX = 300;
-      const totalX = 400;
-
-      doc
-        .text("Item", itemX, tableTop)
-        .text("Quantity", qtyX, tableTop)
-        .text("Price", priceX, tableTop)
-        .text("Total", totalX, tableTop)
-        .moveDown();
-
-      let row = 0;
-      // Make sure items exist and have all needed fields
-      if (
-        quotation.items &&
-        Array.isArray(quotation.items) &&
-        quotation.items.length > 0
-      ) {
+      // Draw items
+      if (quotation.items && quotation.items.length > 0) {
         quotation.items.forEach((item) => {
           if (item && item.item) {
-            const y = tableTop + (row + 1) * 30;
-            doc
-              .text(item.item.name || "Unnamed Item", itemX, y)
-              .text((item.quantity || 0).toString(), qtyX, y)
-              .text(`KES ${(item.unitPrice || 0).toFixed(2)}`, priceX, y)
-              .text(`KES ${(item.subtotal || 0).toFixed(2)}`, totalX, y);
-            row++;
+            doc.text(item.item.name || "Unknown Item", 50, y);
+            doc.text(String(item.quantity || 0), 200, y);
+            doc.text(`${(item.unitPrice || 0).toFixed(2)}`, 250, y);
+            doc.text(`${(item.subtotal || 0).toFixed(2)}`, 350, y);
+            y += 20;
           }
         });
       } else {
-        doc.text("No items", itemX, tableTop + 30);
-        row = 1;
+        doc.text("No items", 50, y);
       }
-
-      doc.moveDown(row + 1);
 
       // Add totals
-      const totalsX = 300;
+      y += 20;
+      doc.text(`Subtotal: ${(quotation.subtotal || 0).toFixed(2)}`, 250, y);
+      y += 20;
+      doc.text(`Tax: ${(quotation.taxTotal || 0).toFixed(2)}`, 250, y);
+      y += 20;
       doc
-        .text(`Subtotal: KES ${(quotation.subtotal || 0).toFixed(2)}`, totalsX)
-        .text(`Tax: KES ${(quotation.taxTotal || 0).toFixed(2)}`, totalsX)
-        .text(
-          `Total: KES ${(quotation.total || 0).toFixed(2)}`,
-          totalsX,
-          null,
-          {
-            bold: true,
-          }
-        );
+        .fontSize(12)
+        .text(`Total: ${(quotation.total || 0).toFixed(2)}`, 250, y);
 
-      // Add terms if exists
-      if (quotation.terms) {
-        doc
-          .moveDown(2)
-          .text("Terms and Conditions:", { underline: true })
-          .moveDown()
-          .text(quotation.terms);
-      }
-
-      // Add notes if exists
-      if (quotation.notes) {
-        doc
-          .moveDown(2)
-          .text("Notes:", { underline: true })
-          .moveDown()
-          .text(quotation.notes);
-      }
-
-      // Add page numbers
-      const range = doc.bufferedPageRange();
-      for (let i = 0; i < range.count; i++) {
-        doc.switchToPage(i);
-        doc
-          .fontSize(8)
-          .text(`Page ${i + 1} of ${range.count}`, 50, doc.page.height - 50, {
-            align: "center",
-          });
-      }
-
-      // Finalize PDF
+      // Finalize the PDF
       doc.end();
 
-      // Wait for stream to complete
-      await streamComplete;
+      // Wait for the stream to finish
+      await new Promise((resolve, reject) => {
+        stream.on("finish", resolve);
+        stream.on("error", reject);
+      });
 
-      // Set response headers
+      // Send the file
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader(
         "Content-Disposition",
-        `attachment; filename="quotation-${quotation.quotationNumber}.pdf"`
+        `attachment; filename="${filename}"`
       );
 
-      // Stream the file to response
-      const fileStream = fs.createReadStream(tempPath);
-      fileStream.pipe(res);
+      // Create a read stream and pipe it to the response
+      const readStream = fs.createReadStream(tempPath);
+      readStream.pipe(res);
 
-      // Clean up after sending
-      fileStream.on("end", async () => {
-        try {
-          await fs.promises.unlink(tempPath);
-        } catch (err) {
-          console.error("Error cleaning up temporary file:", err);
-        }
+      // Clean up the temp file after it's sent
+      readStream.on("end", () => {
+        fs.unlink(tempPath, (err) => {
+          if (err) console.error("Error removing temp file:", err);
+        });
       });
     } catch (error) {
       console.error("PDF generation error:", error);
-      res.status(500).json({
-        success: false,
-        message: "Failed to generate PDF",
-        error: error.message,
-      });
+
+      // Clean up the temp file if it exists and an error occurred
+      if (tempPath) {
+        try {
+          fs.unlink(tempPath, (err) => {
+            if (err) console.error("Error removing temp file:", err);
+          });
+        } catch (unlinkError) {
+          console.error("Error removing temp file:", unlinkError);
+        }
+      }
+
+      // Only send error response if headers haven't been sent
+      if (!res.headersSent) {
+        res.status(500).json({
+          success: false,
+          message: "Failed to generate PDF",
+          error: error.message,
+        });
+      }
     }
   },
 

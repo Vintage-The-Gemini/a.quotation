@@ -64,22 +64,26 @@ const quotationService = {
     if (!id) return Promise.reject("Quotation ID is required");
 
     try {
+      console.log(`Generating PDF for quotation: ${id}`);
+
       // Make the API call with proper error handling
       const response = await api.post(
         ENDPOINTS.PDF(id),
         { templateId: templateId || null },
         {
           responseType: "blob",
-          headers: { Accept: PDF_CONTENT_TYPE },
-          timeout: DEFAULT_TIMEOUT,
-          validateStatus: function (status) {
-            // Consider only 2xx status codes as successful
-            return status >= 200 && status < 300;
-          },
+          headers: { Accept: "application/pdf" },
+          timeout: 60000, // Increase timeout to 60 seconds
         }
       );
 
-      // Check if the response is a valid PDF
+      // Check if the response is valid
+      if (!response.data || !(response.data instanceof Blob)) {
+        console.error("Invalid response format:", response);
+        throw new Error("Invalid PDF response received");
+      }
+
+      // Check if the response is a PDF or an error message
       const contentType = response.headers["content-type"];
       if (contentType && contentType.includes("application/json")) {
         // This is an error response in JSON format
@@ -98,22 +102,17 @@ const quotationService = {
         });
       }
 
-      // Validate the response data
-      if (!response.data || !isBlob(response.data)) {
-        throw new Error("Invalid PDF response received");
-      }
-
       // Create a blob URL for the PDF
-      const blob = new Blob([response.data], { type: PDF_CONTENT_TYPE });
+      const blob = new Blob([response.data], { type: "application/pdf" });
       const url = URL.createObjectURL(blob);
 
       return { blob, url };
     } catch (error) {
-      // Special handling for network or request errors
-      if (error.response) {
-        // The request was made and the server responded with a status outside of 2xx
+      console.error("PDF generation error:", error);
+
+      // Extract error message from response if possible
+      if (error.response && error.response.data) {
         if (error.response.data instanceof Blob) {
-          // Try to extract error message from the blob
           try {
             const text = await error.response.data.text();
             try {
@@ -125,20 +124,15 @@ const quotationService = {
           } catch {
             return Promise.reject(`Server error: ${error.response.status}`);
           }
+        } else {
+          return Promise.reject(
+            error.response.data?.message ||
+              `Server error: ${error.response.status}`
+          );
         }
-        return Promise.reject(
-          error.response.data?.message ||
-            `Server error: ${error.response.status}`
-        );
-      } else if (error.request) {
-        // The request was made but no response was received
-        return Promise.reject(
-          "No response from server. Please check your network connection."
-        );
-      } else {
-        // Something happened in setting up the request
-        return Promise.reject(error.message || "Failed to generate PDF");
       }
+
+      return Promise.reject(error.message || "Failed to generate PDF");
     }
   },
 

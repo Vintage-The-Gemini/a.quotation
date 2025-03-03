@@ -88,14 +88,18 @@ const QuotationDetail = () => {
     }
   };
 
+  // Update the handleDownloadPDF function
+
   const handleDownloadPDF = async () => {
     try {
       setIsGeneratingPDF(true);
       const toastId = toast.loading("Generating PDF...");
 
+      console.log("Starting PDF generation...");
       // Generate PDF using the service
       const result = await quotationService.generatePDF(id, selectedTemplate);
 
+      console.log("PDF generation completed:", result);
       if (!result || !result.url) {
         throw new Error("PDF generation failed: Invalid response from server");
       }
@@ -106,21 +110,27 @@ const QuotationDetail = () => {
       link.download = `quotation-${quotation.quotationNumber}.pdf`;
       document.body.appendChild(link);
       link.click();
-      document.body.removeChild(link);
 
-      // Cleanup the URL
-      window.URL.revokeObjectURL(result.url);
+      // Small delay before cleanup
+      setTimeout(() => {
+        document.body.removeChild(link);
+        // Cleanup the URL
+        window.URL.revokeObjectURL(result.url);
+      }, 100);
 
       toast.dismiss(toastId);
       toast.success("PDF downloaded successfully");
     } catch (error) {
+      console.error("PDF generation error:", error);
       toast.dismiss();
-      toast.error(
+
+      // Provide a clear error message
+      const errorMessage =
         typeof error === "string"
           ? error
-          : error?.message || "Failed to generate PDF"
-      );
-      console.error("PDF generation error:", error);
+          : error?.message || "Failed to generate PDF";
+
+      toast.error(errorMessage);
     } finally {
       setIsGeneratingPDF(false);
     }
