@@ -1,6 +1,8 @@
-const Quotation = require("../models/Quotation");
 const PDFDocument = require("pdfkit");
-const fs = require("fs");
+const Quotation = require("../models/Quotation");
+const Template = require("../models/Template");
+const Business = require("../models/Business");
+const fs = require("fs").promises;
 const path = require("path");
 
 const quotationController = {
@@ -144,9 +146,11 @@ const quotationController = {
     }
   },
 
-  // Generate PDF
   generatePDF: async (req, res) => {
     try {
+      const { templateId } = req.body;
+
+      // Fetch necessary data
       const quotation = await Quotation.findOne({
         _id: req.params.id,
         business: req.user.businessId,
@@ -159,8 +163,124 @@ const quotationController = {
         });
       }
 
-      // Create PDF
-      const doc = new PDFDocument();
+      // Create PDF document
+      const doc = new PDFDocument({
+        size: "A4",
+        margin: 50,
+        bufferPages: true, // Enable page buffering
+      });
+
+      // Create a write stream
+      const tempPath = path.join(
+        __dirname,
+        "..",
+        "temp",
+        `${quotation._id}.pdf`
+      );
+      const writeStream = fs.createWriteStream(tempPath);
+
+      // Set up promise to handle stream completion
+      const streamComplete = new Promise((resolve, reject) => {
+        writeStream.on("finish", () => resolve(tempPath));
+        writeStream.on("error", reject);
+      });
+
+      // Pipe to write stream
+      doc.pipe(writeStream);
+
+      // Add content
+      doc.fontSize(25).text("Quotation", { align: "center" }).moveDown();
+
+      // Add quotation details
+      doc
+        .fontSize(12)
+        .text(`Quotation Number: ${quotation.quotationNumber}`)
+        .text(`Date: ${new Date(quotation.createdAt).toLocaleDateString()}`)
+        .text(
+          `Valid Until: ${new Date(quotation.validUntil).toLocaleDateString()}`
+        )
+        .moveDown();
+
+      // Add customer details
+      doc
+        .text(`Customer: ${quotation.customer.name}`)
+        .text(`Email: ${quotation.customer.email || "N/A"}`)
+        .text(`Phone: ${quotation.customer.phone || "N/A"}`)
+        .moveDown();
+
+      // Add items table
+      doc.text("Items:", { underline: true }).moveDown();
+
+      // Table headers
+      const tableTop = doc.y;
+      const itemX = 50;
+      const qtyX = 200;
+      const priceX = 300;
+      const totalX = 400;
+
+      doc
+        .text("Item", itemX, tableTop)
+        .text("Quantity", qtyX, tableTop)
+        .text("Price", priceX, tableTop)
+        .text("Total", totalX, tableTop)
+        .moveDown();
+
+      let row = 0;
+      quotation.items.forEach((item) => {
+        const y = tableTop + (row + 1) * 30;
+        doc
+          .text(item.item.name, itemX, y)
+          .text(item.quantity.toString(), qtyX, y)
+          .text(`KES ${item.unitPrice.toFixed(2)}`, priceX, y)
+          .text(`KES ${item.subtotal.toFixed(2)}`, totalX, y);
+        row++;
+      });
+
+      doc.moveDown(row + 1);
+
+      // Add totals
+      const totalsX = 300;
+      doc
+        .text(`Subtotal: KES ${quotation.subtotal.toFixed(2)}`, totalsX)
+        .text(`Tax: KES ${quotation.taxTotal.toFixed(2)}`, totalsX)
+        .text(`Total: KES ${quotation.total.toFixed(2)}`, totalsX, null, {
+          bold: true,
+        });
+
+      // Add terms if exists
+      if (quotation.terms) {
+        doc
+          .moveDown(2)
+          .text("Terms and Conditions:", { underline: true })
+          .moveDown()
+          .text(quotation.terms);
+      }
+
+      // Add notes if exists
+      if (quotation.notes) {
+        doc
+          .moveDown(2)
+          .text("Notes:", { underline: true })
+          .moveDown()
+          .text(quotation.notes);
+      }
+
+      // Add page numbers
+      const range = doc.bufferedPageRange();
+      for (let i = 0; i < range.count; i++) {
+        doc.switchToPage(i);
+        doc
+          .fontSize(8)
+          .text(`Page ${i + 1} of ${range.count}`, 50, doc.page.height - 50, {
+            align: "center",
+          });
+      }
+
+      // Finalize PDF
+      doc.end();
+
+      // Wait for stream to complete
+      await streamComplete;
 
       // Set response headers
       res.setHeader("Content-Type", "application/pdf");
@@ -169,23 +289,24 @@ const quotationController = {
         `attachment; filename="quotation-${quotation.quotationNumber}.pdf"`
       );
 
-      // Pipe PDF to response
-      doc.pipe(res);
+      // Stream the file to response
+      const fileStream = fs.createReadStream(tempPath);
+      fileStream.pipe(res);
 
-      // Add content to PDF
-      doc.fontSize(25).text("Quotation", { align: "center" });
-      doc.moveDown();
-      doc.fontSize(12).text(`Quotation Number: ${quotation.quotationNumber}`);
-      doc.moveDown();
-
-      // Add more PDF content here...
-
-      // Finalize PDF
-      doc.end();
+      // Clean up after sending
+      fileStream.on("end", async () => {
+        try {
+          await fs.unlink(tempPath);
+        } catch (err) {
+          console.error("Error cleaning up temporary file:", err);
+        }
+      });
     } catch (error) {
-      res.status(400).json({
+      console.error("PDF generation error:", error);
+      res.status(500).json({
         success: false,
-        message: error.message,
+        message: "Failed to generate PDF",
+        error: error.message,
       });
     }
   },

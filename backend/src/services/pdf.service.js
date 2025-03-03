@@ -1,5 +1,3 @@
-// /backend/src/services/pdf.service.js
-
 const PDFDocument = require("pdfkit");
 const fs = require("fs");
 const path = require("path");
@@ -8,12 +6,14 @@ class PDFService {
   async generateQuotationPDF(quotation, template, business) {
     return new Promise((resolve, reject) => {
       try {
+        // Create PDF document with template settings
         const doc = new PDFDocument({
           size: "A4",
           margin: 50,
           bufferPages: true,
         });
 
+        // Set up the file path
         const filePath = path.join(
           __dirname,
           "../temp",
@@ -21,52 +21,45 @@ class PDFService {
         );
         const writeStream = fs.createWriteStream(filePath);
 
-        doc.pipe(writeStream);
-
-        // Apply template styles
-        this.applyTemplateStyles(doc, template);
-
-        // Add business logo if exists
-        if (business.logo) {
-          const logoPath = path.join(
-            __dirname,
-            "../../uploads/logos",
-            business.logo
-          );
-          if (fs.existsSync(logoPath)) {
-            doc.image(logoPath, {
-              fit: [150, 150],
-              align: "right",
-            });
-          }
-        }
-
-        // Add business details based on template
-        this.addBusinessDetails(doc, business, template);
-
-        // Add quotation details
-        this.addQuotationDetails(doc, quotation, template);
-
-        // Add items table
-        this.addItemsTable(doc, quotation.items, template);
-
-        // Add totals
-        this.addTotals(doc, quotation, template);
-
-        // Add footer
-        this.addFooter(doc, quotation, template, business);
-
-        // Finalize the PDF
-        doc.end();
+        // Handle stream errors
+        writeStream.on("error", (error) => {
+          console.error("Write stream error:", error);
+          reject(error);
+        });
 
         writeStream.on("finish", () => {
           resolve(filePath);
         });
 
-        writeStream.on("error", (error) => {
-          reject(error);
-        });
+        // Pipe the PDF document to the write stream
+        doc.pipe(writeStream);
+
+        // Apply template styles
+        this.applyTemplateStyles(doc, template);
+
+        // Add content sections based on template
+        this.addHeader(doc, business, quotation, template);
+        this.addCustomerInfo(doc, quotation.customer, template);
+        this.addQuotationDetails(doc, quotation, template);
+        this.addItemsTable(doc, quotation.items, template);
+        this.addTotals(doc, quotation, template);
+        this.addFooter(doc, quotation, template, business);
+
+        // Add page numbers
+        const pages = doc.bufferedPageRange();
+        for (let i = 0; i < pages.count; i++) {
+          doc.switchToPage(i);
+          doc
+            .fontSize(8)
+            .text(`Page ${i + 1} of ${pages.count}`, 50, doc.page.height - 50, {
+              align: "center",
+            });
+        }
+
+        // Finalize the PDF
+        doc.end();
       } catch (error) {
+        console.error("PDF generation error:", error);
         reject(error);
       }
     });
@@ -76,136 +69,197 @@ class PDFService {
     if (!template) return;
 
     const { style } = template;
-    if (style) {
-      // Set default font family and size
-      doc
-        .font(style.fontFamily || "Helvetica")
-        .fontSize(parseInt(style.fontSize) || 12);
-    }
+    doc
+      .font(style?.fontFamily || "Helvetica")
+      .fontSize(parseInt(style?.fontSize) || 12);
   }
 
-  addBusinessDetails(doc, business, template) {
+  addHeader(doc, business, quotation, template) {
     const { sections } = template || {};
     const { header } = sections || {};
 
+    if (header?.showLogo && business.logo) {
+      const logoPath = path.join(
+        __dirname,
+        "../../uploads/logos",
+        business.logo
+      );
+      if (fs.existsSync(logoPath)) {
+        doc.image(logoPath, {
+          fit: [150, 150],
+          align: "right",
+        });
+      }
+    }
+
     if (header?.showBusinessInfo) {
       doc
+        .moveDown()
         .fontSize(18)
         .font("Helvetica-Bold")
-        .text(business.name, { align: "left" })
+        .text(business.name || "", { align: "left" })
         .fontSize(10)
         .font("Helvetica")
-        .text(business.email)
-        .text(business.phone)
+        .text(business.email || "")
+        .text(business.phone || "")
         .text(this.formatAddress(business.address));
     }
 
-    doc.moveDown(2);
-  }
-
-  addQuotationDetails(doc, quotation, template) {
-    doc.fontSize(20).text("QUOTATION", { align: "center" }).moveDown();
-
     doc
-      .fontSize(10)
-      .text(`Quotation Number: ${quotation.quotationNumber}`)
-      .text(`Date: ${new Date(quotation.createdAt).toLocaleDateString()}`)
-      .text(
-        `Valid Until: ${new Date(quotation.validUntil).toLocaleDateString()}`
-      )
-      .moveDown()
-      .text("Bill To:")
-      .text(quotation.customer.name)
-      .text(quotation.customer.email || "")
-      .text(quotation.customer.phone || "")
-      .text(this.formatAddress(quotation.customer.address))
+      .moveDown(2)
+      .fontSize(20)
+      .text("QUOTATION", { align: "center" })
+      .fontSize(12)
       .moveDown();
+
+    if (header?.showQuotationNumber) {
+      doc
+        .text(`Quotation Number: ${quotation.quotationNumber}`)
+        .text(`Date: ${new Date(quotation.createdAt).toLocaleDateString()}`)
+        .text(
+          `Valid Until: ${new Date(quotation.validUntil).toLocaleDateString()}`
+        );
+    }
   }
 
-  addItemsTable(doc, items, template) {
-    // Set up the table headers
-    const tableTop = doc.y;
-    const itemX = 50;
-    const descriptionX = 150;
-    const quantityX = 280;
-    const priceX = 350;
-    const totalX = 450;
+  addCustomerInfo(doc, customer, template) {
+    doc.moveDown().font("Helvetica-Bold").text("Bill To:").font("Helvetica");
 
-    doc.font("Helvetica-Bold");
-    doc.text("Item", itemX, tableTop);
-    doc.text("Description", descriptionX, tableTop);
-    doc.text("Qty", quantityX, tableTop);
-    doc.text("Price", priceX, tableTop);
-    doc.text("Total", totalX, tableTop);
+    const { customerInfo } = template?.sections || {};
+    const fields = customerInfo?.fields || [];
 
-    let y = tableTop + 20;
-    doc.font("Helvetica");
-
-    items.forEach((item) => {
-      doc.text(item.item.name, itemX, y);
-      doc.text(item.item.description || "", descriptionX, y);
-      doc.text(item.quantity.toString(), quantityX, y);
-      doc.text(item.unitPrice.toFixed(2), priceX, y);
-      doc.text(item.subtotal.toFixed(2), totalX, y);
-      y += 20;
+    fields.forEach((field) => {
+      if (field.isVisible) {
+        switch (field.name) {
+          case "name":
+            doc.text(customer.name || "");
+            break;
+          case "email":
+            doc.text(customer.email || "");
+            break;
+          case "phone":
+            doc.text(customer.phone || "");
+            break;
+          case "address":
+            doc.text(this.formatAddress(customer.address));
+            break;
+        }
+      }
     });
 
     doc.moveDown();
   }
 
-  addTotals(doc, quotation, template) {
-    const { total, subtotal, taxTotal } = quotation;
-
+  addQuotationDetails(doc, quotation, template) {
     doc
-      .text(`Subtotal: ${subtotal.toFixed(2)}`, { align: "right" })
-      .text(`Tax: ${taxTotal.toFixed(2)}`, { align: "right" })
-      .font("Helvetica-Bold")
-      .text(`Total: ${total.toFixed(2)}`, { align: "right" })
+      .fontSize(12)
+      .text(`Status: ${quotation.status.toUpperCase()}`, { align: "right" })
       .moveDown();
   }
 
+  addItemsTable(doc, items, template) {
+    const { itemTable } = template?.sections || {};
+    const columns = itemTable?.columns || [];
+
+    // Table headers
+    let yPos = doc.y;
+    let xPos = 50;
+
+    doc.font("Helvetica-Bold");
+    columns.forEach((col) => {
+      if (col.isVisible) {
+        doc.text(col.label, xPos, yPos);
+        xPos += 100;
+      }
+    });
+
+    doc.moveDown();
+    yPos = doc.y;
+
+    // Table rows
+    doc.font("Helvetica");
+    items.forEach((item) => {
+      xPos = 50;
+      columns.forEach((col) => {
+        if (col.isVisible) {
+          let value = "";
+          switch (col.name) {
+            case "item":
+              value = item.item.name;
+              break;
+            case "description":
+              value = item.item.description || "";
+              break;
+            case "quantity":
+              value = item.quantity.toString();
+              break;
+            case "unitPrice":
+              value = this.formatCurrency(item.unitPrice);
+              break;
+            case "tax":
+              value = item.tax ? `${item.tax}%` : "N/A";
+              break;
+            case "total":
+              value = this.formatCurrency(item.subtotal);
+              break;
+          }
+          doc.text(value, xPos, yPos);
+          xPos += 100;
+        }
+      });
+      doc.moveDown();
+      yPos = doc.y;
+    });
+  }
+
+  addTotals(doc, quotation, template) {
+    doc.moveDown().font("Helvetica-Bold");
+
+    const rightColumn = 400;
+    doc
+      .text("Subtotal:", rightColumn)
+      .text(this.formatCurrency(quotation.subtotal), rightColumn + 100);
+
+    doc
+      .text("Tax:", rightColumn)
+      .text(this.formatCurrency(quotation.taxTotal), rightColumn + 100);
+
+    doc
+      .text("Total:", rightColumn)
+      .text(this.formatCurrency(quotation.total), rightColumn + 100);
+  }
+
   addFooter(doc, quotation, template, business) {
-    const { sections } = template || {};
-    const { footer } = sections || {};
+    const { footer } = template?.sections || {};
+
+    doc.moveDown(2);
 
     if (footer?.showTerms && quotation.terms) {
       doc
         .font("Helvetica-Bold")
         .text("Terms and Conditions")
         .font("Helvetica")
-        .text(quotation.terms)
-        .moveDown();
-    }
-
-    if (quotation.notes) {
-      doc
-        .font("Helvetica-Bold")
-        .text("Notes")
-        .font("Helvetica")
-        .text(quotation.notes)
-        .moveDown();
+        .text(quotation.terms);
     }
 
     if (footer?.showSignature) {
       doc
         .moveDown(4)
-        .lineWidth(0.5)
-        .lineCap("butt")
-        .moveTo(doc.page.width - 200, doc.y)
-        .lineTo(doc.page.width - 50, doc.y)
+        .lineWidth(1)
+        .moveTo(400, doc.y)
+        .lineTo(550, doc.y)
         .stroke()
-        .text("Authorized Signature", doc.page.width - 200, doc.y + 5, {
-          width: 150,
-          align: "center",
-        });
+        .text("Authorized Signature", 400, doc.y + 5);
     }
 
-    // Add footer text if specified in template
     if (footer?.customText) {
-      doc.fontSize(8).text(footer.customText, 50, doc.page.height - 50, {
-        align: "center",
-        width: doc.page.width - 100,
-      });
+      doc
+        .moveDown(2)
+        .fontSize(8)
+        .text(footer.customText, {
+          align: "center",
+          width: doc.page.width - 100,
+        });
     }
   }
 
@@ -219,6 +273,13 @@ class PDFService {
       address.country,
     ].filter(Boolean);
     return parts.join(", ");
+  }
+
+  formatCurrency(amount) {
+    return new Intl.NumberFormat("en-KE", {
+      style: "currency",
+      currency: "KES",
+    }).format(amount);
   }
 }
 

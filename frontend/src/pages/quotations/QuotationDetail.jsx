@@ -93,10 +93,7 @@ const QuotationDetail = () => {
       setIsGeneratingPDF(true);
       const toastId = toast.loading("Generating PDF...");
 
-      const { blob, url } = await quotationService.downloadQuotation(
-        id,
-        selectedTemplate
-      );
+      const { url } = await quotationService.generatePDF(id, selectedTemplate);
 
       // Create and trigger download
       const link = document.createElement("a");
@@ -106,13 +103,13 @@ const QuotationDetail = () => {
       link.click();
       document.body.removeChild(link);
 
-      // Cleanup
+      // Cleanup the URL
       window.URL.revokeObjectURL(url);
 
       toast.dismiss(toastId);
       toast.success("PDF downloaded successfully");
     } catch (error) {
-      toast.error("Failed to generate PDF");
+      toast.error(error.message || "Failed to generate PDF");
       console.error("PDF generation error:", error);
     } finally {
       setIsGeneratingPDF(false);
