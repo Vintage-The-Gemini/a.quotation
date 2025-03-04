@@ -1,3 +1,4 @@
+// backend/src/routes/template.routes.js
 const express = require("express");
 const router = express.Router();
 const { protect } = require("../middlewares/auth.middleware");
@@ -17,5 +18,8 @@ router
   .get(templateController.getTemplate)
   .put(templateController.updateTemplate)
   .delete(templateController.deleteTemplate);
+
+// Set default template route
+router.route("/:id/default").put(templateController.setDefaultTemplate);
 
 module.exports = router;

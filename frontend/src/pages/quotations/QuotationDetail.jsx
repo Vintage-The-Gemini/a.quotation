@@ -299,6 +299,24 @@ const QuotationDetail = () => {
     );
   }
 
+  const handleTemplateChange = (e) => {
+    const templateId = e.target.value;
+    setSelectedTemplate(templateId);
+
+    if (templateId) {
+      const template = templates.find((t) => t._id === templateId);
+      if (template) {
+        setCurrentTemplate(template);
+        // Store this preference for future use
+        localStorage.setItem("preferredQuotationTemplate", templateId);
+      }
+    } else {
+      // If no template is selected, use the default one
+      const defaultTemplate = templates.find((t) => t.isDefault);
+      setCurrentTemplate(defaultTemplate || null);
+      localStorage.removeItem("preferredQuotationTemplate");
+    }
+  };
   return (
     <>
       <div className="space-y-6 p-4">
@@ -351,7 +369,7 @@ const QuotationDetail = () => {
             {templates.length > 0 && (
               <select
                 value={selectedTemplate || ""}
-                onChange={(e) => setSelectedTemplate(e.target.value)}
+                onChange={handleTemplateChange}
                 className="rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
               >
                 <option value="">Default Template</option>

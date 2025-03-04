@@ -148,7 +148,9 @@ const quotationController = {
     }
   },
 
-  // backend/src/controllers/quotation.controller.js - generatePDF method
+  // In backend/src/controllers/quotation.controller.js
+  // Update the generatePDF method
+
   generatePDF: async (req, res) => {
     try {
       console.log(
@@ -308,7 +310,6 @@ const quotationController = {
       });
     }
   },
-
   // Send email
   sendEmail: async (req, res) => {
     try {

@@ -1,3 +1,4 @@
+// frontend/src/components/quotations/QuotationPreview.jsx
 import React from "react";
 
 const QuotationPreview = ({ quotation, template, business }) => {
@@ -82,6 +83,25 @@ const QuotationPreview = ({ quotation, template, business }) => {
     return null;
   };
 
+  // Get visible columns for the table
+  const getVisibleColumns = () => {
+    if (!template.sections?.itemTable?.columns) {
+      // Default columns if none specified
+      return [
+        { name: "item", label: "Item" },
+        { name: "description", label: "Description" },
+        { name: "quantity", label: "Quantity" },
+        { name: "unitPrice", label: "Unit Price" },
+        { name: "tax", label: "Tax" },
+        { name: "total", label: "Total" },
+      ];
+    }
+
+    return template.sections.itemTable.columns.filter(
+      (col) => col.isVisible !== false
+    );
+  };
+
   return (
     <div
       className={`bg-white p-8 max-w-4xl mx-auto ${getTemplateClass()}`}
@@ -98,7 +118,7 @@ const QuotationPreview = ({ quotation, template, business }) => {
           <div className={headerLayout === "logo-left" ? "order-2" : "order-1"}>
             <h1
               className="text-2xl font-bold"
-              style={{ color: template.style?.primaryColor }}
+              style={{ color: template.style?.primaryColor || "#1a73e8" }}
             >
               {business?.name || "Your Business"}
             </h1>
@@ -141,7 +161,7 @@ const QuotationPreview = ({ quotation, template, business }) => {
       <div className="text-center mb-8">
         <h2
           className="text-xl font-bold uppercase"
-          style={{ color: template.style?.primaryColor }}
+          style={{ color: template.style?.primaryColor || "#1a73e8" }}
         >
           Quotation
         </h2>
@@ -163,8 +183,13 @@ const QuotationPreview = ({ quotation, template, business }) => {
         }`}
       >
         <div>
-          <h3 className="font-bold mb-2">Bill To:</h3>
-          {template.sections?.customerInfo?.fields?.map((field) => {
+          <h3
+            className="font-bold mb-2"
+            style={{ color: template.style?.primaryColor || "#1a73e8" }}
+          >
+            Bill To:
+          </h3>
+          {(template.sections?.customerInfo?.fields || []).map((field) => {
             if (!field.isVisible) return null;
 
             let value = "";
@@ -201,34 +226,34 @@ const QuotationPreview = ({ quotation, template, business }) => {
       </div>
 
       {/* Items Table */}
-      <div className="mb-8">
+      <div className="mb-8 overflow-x-auto">
         <table className="w-full border-collapse">
           <thead
-            style={{ backgroundColor: `${template.style?.primaryColor}22` }}
+            style={{
+              backgroundColor:
+                `${template.style?.primaryColor}22` || "#1a73e822",
+            }}
           >
             <tr>
-              {template.sections?.itemTable?.columns?.map((col) => {
-                if (!col.isVisible) return null;
-                return (
-                  <th
-                    key={col.name}
-                    className="p-2 text-left border-b"
-                    style={{ color: template.style?.primaryColor }}
-                  >
-                    {col.label}
-                  </th>
-                );
-              })}
+              {getVisibleColumns().map((col) => (
+                <th
+                  key={col.name}
+                  className="p-2 text-left border-b"
+                  style={{ color: template.style?.primaryColor || "#1a73e8" }}
+                >
+                  {col.label}
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>
             {quotation.items?.length > 0 ? (
               quotation.items.map((item, index) => (
                 <tr key={index} className="border-b">
-                  {template.sections?.itemTable?.columns?.map((col) => {
-                    if (!col.isVisible) return null;
-
+                  {getVisibleColumns().map((col) => {
                     let value = "";
+                    let align = "left";
+
                     switch (col.name) {
                       case "item":
                         value = item.item?.name || "";
@@ -238,22 +263,30 @@ const QuotationPreview = ({ quotation, template, business }) => {
                         break;
                       case "quantity":
                         value = item.quantity?.toString() || "";
+                        align = "right";
                         break;
                       case "unitPrice":
                         value = formatCurrency(item.unitPrice);
+                        align = "right";
                         break;
                       case "tax":
-                        value = item.tax ? `${item.tax}%` : "N/A";
+                        value = item.tax ? `${item.tax}%` : "0%";
+                        align = "right";
                         break;
                       case "total":
                         value = formatCurrency(item.subtotal);
+                        align = "right";
                         break;
                       default:
                         value = "";
                     }
 
                     return (
-                      <td key={col.name} className="p-2">
+                      <td
+                        key={col.name}
+                        className="p-2"
+                        style={{ textAlign: align }}
+                      >
                         {value}
                       </td>
                     );
@@ -262,40 +295,56 @@ const QuotationPreview = ({ quotation, template, business }) => {
               ))
             ) : (
               <tr>
-                <td colSpan="6" className="p-2 text-center text-gray-500">
+                <td
+                  colSpan={getVisibleColumns().length}
+                  className="p-2 text-center text-gray-500"
+                >
                   No items added
                 </td>
               </tr>
             )}
           </tbody>
           <tfoot
-            style={{ backgroundColor: `${template.style?.primaryColor}11` }}
+            style={{
+              backgroundColor:
+                `${template.style?.primaryColor}11` || "#1a73e811",
+            }}
           >
             <tr>
-              <td colSpan={4} className="p-2 text-right font-bold">
+              <td
+                colSpan={getVisibleColumns().length - 1}
+                className="p-2 text-right font-bold"
+              >
                 Subtotal:
               </td>
-              <td className="p-2">{formatCurrency(quotation.subtotal)}</td>
+              <td className="p-2 text-right">
+                {formatCurrency(quotation.subtotal)}
+              </td>
             </tr>
             <tr>
-              <td colSpan={4} className="p-2 text-right font-bold">
+              <td
+                colSpan={getVisibleColumns().length - 1}
+                className="p-2 text-right font-bold"
+              >
                 Tax:
               </td>
-              <td className="p-2">{formatCurrency(quotation.taxTotal)}</td>
+              <td className="p-2 text-right">
+                {formatCurrency(quotation.taxTotal)}
+              </td>
             </tr>
             <tr
-              style={{ backgroundColor: `${template.style?.primaryColor}22` }}
+              style={{ backgroundColor: "#ffeb3b" }} // Yellow highlight for total
             >
               <td
-                colSpan={4}
+                colSpan={getVisibleColumns().length - 1}
                 className="p-2 text-right font-bold"
-                style={{ color: template.style?.primaryColor }}
+                style={{ color: template.style?.primaryColor || "#1a73e8" }}
               >
                 Total:
               </td>
               <td
-                className="p-2 font-bold"
-                style={{ color: template.style?.primaryColor }}
+                className="p-2 font-bold text-right"
+                style={{ color: template.style?.primaryColor || "#1a73e8" }}
               >
                 {formatCurrency(quotation.total)}
               </td>
@@ -308,8 +357,25 @@ const QuotationPreview = ({ quotation, template, business }) => {
       <div className="mt-12">
         {template.sections?.footer?.showTerms && quotation.terms && (
           <div className="mb-6">
-            <h3 className="font-bold mb-2">Terms & Conditions:</h3>
+            <h3
+              className="font-bold mb-2"
+              style={{ color: template.style?.primaryColor || "#1a73e8" }}
+            >
+              Terms & Conditions:
+            </h3>
             <p className="text-sm">{quotation.terms}</p>
+          </div>
+        )}
+
+        {quotation.notes && (
+          <div className="mb-6">
+            <h3
+              className="font-bold mb-2"
+              style={{ color: template.style?.primaryColor || "#1a73e8" }}
+            >
+              Notes:
+            </h3>
+            <p className="text-sm">{quotation.notes}</p>
           </div>
         )}
 

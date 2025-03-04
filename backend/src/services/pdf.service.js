@@ -58,9 +58,6 @@ class PDFService {
         // Get template settings or use defaults
         const styles = this._getStyles(template);
 
-        // Register fonts if available
-        this._registerFonts(doc);
-
         // Set the default font
         doc.font(styles.fontFamily);
         doc.fontSize(styles.fontSize);
@@ -96,6 +93,7 @@ class PDFService {
       subheaderFontSize: 14,
       tableBorderColor: "#e0e0e0",
       tableHeaderBgColor: "#f1f3f4",
+      totalBgColor: "#ffeb3b", // Yellow highlight for total
       lineHeight: 1.5,
     };
 
@@ -143,21 +141,13 @@ class PDFService {
   }
 
   /**
-   * Register custom fonts with PDFKit if needed
-   */
-  _registerFonts(doc) {
-    // Example of registering fonts - implement if custom fonts are available
-    /*
-    doc.registerFont('CustomFont', 'path/to/custom-font.ttf');
-    */
-  }
-
-  /**
    * Add header section to PDF
    */
   _addHeader(doc, quotation, business, template, styles) {
     // Start position
     const startY = doc.y;
+    const pageWidth =
+      doc.page.width - doc.page.margins.left - doc.page.margins.right;
 
     // Get header settings from template
     const headerConfig = template?.sections?.header || {
@@ -167,79 +157,98 @@ class PDFService {
       layout: "logo-right",
     };
 
+    // Business info width and logo width
+    const infoWidth = pageWidth * 0.6;
+    const logoWidth = pageWidth * 0.3;
+
     // Business info section
     if (headerConfig.showBusinessInfo && business) {
-      // Determine position based on layout
-      const businessInfoX = headerConfig.layout === "logo-left" ? 300 : 50;
+      // Left side position for business info
+      const businessInfoX = 50;
 
       // Save position for business info
-      doc.save();
-      doc.fontSize(styles.headerFontSize).fillColor(styles.primaryColor);
+      doc.fontSize(24).fillColor(styles.primaryColor);
       doc.text(business.name || "Your Business", businessInfoX, startY, {
-        width: 200,
-        align: headerConfig.layout === "logo-left" ? "right" : "left",
+        width: infoWidth,
+        align: "left",
       });
 
       // Reset font for contact info
       doc.fontSize(styles.fontSize).fillColor(styles.textColor);
       doc.moveDown(0.5);
 
-      // Add business contact details
+      // Add business contact details with proper alignment
       const contactInfo = [];
       if (business.email) contactInfo.push(business.email);
       if (business.phone) contactInfo.push(business.phone);
       if (business.address) {
-        const address = [];
-        if (business.address.street) address.push(business.address.street);
-        if (business.address.city) address.push(business.address.city);
-        if (business.address.state) address.push(business.address.state);
-        if (business.address.zipCode) address.push(business.address.zipCode);
-        if (business.address.country) address.push(business.address.country);
+        const addressParts = [];
+        if (business.address.street) addressParts.push(business.address.street);
+        if (business.address.city) addressParts.push(business.address.city);
+        if (business.address.state) addressParts.push(business.address.state);
+        if (business.address.zipCode)
+          addressParts.push(business.address.zipCode);
+        if (business.address.country)
+          addressParts.push(business.address.country);
 
-        if (address.length > 0) {
-          contactInfo.push(address.join(", "));
+        if (addressParts.length > 0) {
+          contactInfo.push(addressParts.join(", "));
         }
       }
 
-      doc.text(contactInfo.join("\n"), {
-        width: 200,
-        align: headerConfig.layout === "logo-left" ? "right" : "left",
+      doc.text(contactInfo.join("\n"), businessInfoX, doc.y, {
+        width: infoWidth,
+        align: "left",
       });
-      doc.restore();
     }
 
-    // Logo section - placeholder for logo
+    // Logo section
     if (headerConfig.showLogo) {
-      const logoX = headerConfig.layout === "logo-left" ? 50 : 350;
-      const logoWidth = 150;
+      // Right side position for logo
+      const logoX = doc.page.width - doc.page.margins.right - logoWidth;
+      const logoY = startY;
       const logoHeight = 60;
 
-      // Create a placeholder rectangle for the logo
-      doc.save();
-      doc
-        .rect(logoX, startY, logoWidth, logoHeight)
-        .fillColor(styles.secondaryColor)
-        .fill();
-      doc
-        .fillColor(styles.textColor)
-        .fontSize(8)
-        .text(
-          "Business Logo",
-          logoX + logoWidth / 2 - 30,
-          startY + logoHeight / 2 - 5
+      // If we have a logo, use it, otherwise create a placeholder
+      if (business?.logo?.url) {
+        try {
+          // Try to use the actual logo
+          doc.image(business.logo.url, logoX, logoY, {
+            width: logoWidth,
+            height: logoHeight,
+            fit: [logoWidth, logoHeight],
+            align: "center",
+            valign: "center",
+          });
+        } catch (err) {
+          console.error("Error loading logo:", err);
+          // Fallback to placeholder if logo can't be loaded
+          this._createLogoPlaceholder(
+            doc,
+            logoX,
+            logoY,
+            logoWidth,
+            logoHeight,
+            styles
+          );
+        }
+      } else {
+        // Create a placeholder for the logo
+        this._createLogoPlaceholder(
+          doc,
+          logoX,
+          logoY,
+          logoWidth,
+          logoHeight,
+          styles
         );
-      doc.restore();
-
-      // Note: In a real implementation, you'd load and embed the logo image
-      // doc.image(logoPath, logoX, startY, { width: logoWidth, height: logoHeight });
+      }
     }
 
-    // Document title section
+    // Document title section - Add some space after the header
     doc.moveDown(4);
-    doc
-      .fontSize(styles.headerFontSize)
-      .fillColor(styles.primaryColor)
-      .text("QUOTATION", { align: "center" });
+    doc.fontSize(styles.headerFontSize).fillColor(styles.primaryColor);
+    doc.text("QUOTATION", { align: "center" });
 
     // Quotation details
     if (headerConfig.showQuotationNumber) {
@@ -260,6 +269,20 @@ class PDFService {
     }
 
     doc.moveDown(2);
+  }
+
+  /**
+   * Create a placeholder rectangle for the logo
+   */
+  _createLogoPlaceholder(doc, x, y, width, height, styles) {
+    doc.save();
+    doc.rect(x, y, width, height).fillColor("#f0f0f0").fill();
+    doc.fillColor("#888888").fontSize(10);
+    doc.text("Business Logo", x + width / 2 - 30, y + height / 2 - 5, {
+      width: 60,
+      align: "center",
+    });
+    doc.restore();
   }
 
   /**
@@ -379,8 +402,10 @@ class PDFService {
     if (visibleColumns.length === 0) {
       visibleColumns.push(
         { name: "item", label: "Item" },
+        { name: "description", label: "Description" },
         { name: "quantity", label: "Quantity" },
         { name: "unitPrice", label: "Unit Price" },
+        { name: "tax", label: "Tax" },
         { name: "total", label: "Total" }
       );
     }
@@ -388,105 +413,204 @@ class PDFService {
     // Table setup
     const startX = 50;
     const startY = doc.y;
-    const tableWidth = 500;
-    const colWidth = tableWidth / visibleColumns.length;
+    const pageWidth = doc.page.width - 100; // 50px margin on each side
     const rowHeight = 25;
+
+    // Define column widths based on content type
+    const columnWidths = this._calculateColumnWidths(visibleColumns, pageWidth);
 
     // Draw table header
     doc
-      .rect(startX, startY, tableWidth, rowHeight)
+      .rect(startX, startY, pageWidth, rowHeight)
       .fillColor(styles.tableHeaderBgColor)
       .fill();
 
-    // Reset text color
-    doc.fillColor(styles.primaryColor);
-
     // Add column headers
+    let xOffset = startX;
     visibleColumns.forEach((column, i) => {
-      const x = startX + i * colWidth + 5;
-      doc.text(column.label, x, startY + 7, {
-        width: colWidth - 10,
-        align: ["quantity", "unitPrice", "tax", "total"].includes(column.name)
-          ? "right"
-          : "left",
+      const width = columnWidths[i];
+      const align = this._getColumnAlignment(column.name);
+
+      doc
+        .fillColor(styles.primaryColor)
+        .font(styles.fontFamily, "bold")
+        .fontSize(styles.fontSize);
+
+      doc.text(column.label, xOffset + 5, startY + 8, {
+        width: width - 10,
+        align: align,
       });
+
+      xOffset += width;
     });
 
+    // Reset font
+    doc.font(styles.fontFamily, "normal").fillColor(styles.textColor);
+
     // Start drawing rows
-    let currentY = startY + rowHeight;
+    let yPosition = startY + rowHeight;
 
     // No items message if empty
     if (!quotation.items || quotation.items.length === 0) {
       doc
-        .rect(startX, currentY, tableWidth, rowHeight)
+        .rect(startX, yPosition, pageWidth, rowHeight)
         .fillColor("#ffffff")
         .fill();
+
       doc.fillColor(styles.textColor);
-      doc.text("No items", startX + 5, currentY + 7, {
-        width: tableWidth - 10,
+      doc.text("No items", startX + 5, yPosition + 8, {
+        width: pageWidth - 10,
         align: "center",
       });
-      currentY += rowHeight;
+
+      yPosition += rowHeight;
     } else {
       // Add each item as a row
       quotation.items.forEach((item, rowIndex) => {
+        // Calculate row height based on content
+        const rowContentHeight = this._calculateRowHeight(
+          doc,
+          item,
+          visibleColumns,
+          columnWidths
+        );
+        const currentRowHeight = Math.max(rowHeight, rowContentHeight);
+
+        // Check if we need to add a new page
+        if (yPosition + currentRowHeight > doc.page.height - 100) {
+          doc.addPage();
+          yPosition = 50; // Reset Y position for the new page
+        }
+
         // Row background
         doc
-          .rect(startX, currentY, tableWidth, rowHeight)
+          .rect(startX, yPosition, pageWidth, currentRowHeight)
           .fillColor(rowIndex % 2 === 0 ? "#ffffff" : "#f9f9f9")
           .fill();
 
-        // Reset text color
-        doc.fillColor(styles.textColor);
-
-        // Add each cell in the row
+        // Add cell content
+        let xOffset = startX;
         visibleColumns.forEach((column, colIndex) => {
-          const x = startX + colIndex * colWidth + 5;
-          const align = ["quantity", "unitPrice", "tax", "total"].includes(
-            column.name
-          )
-            ? "right"
-            : "left";
+          const width = columnWidths[colIndex];
+          const align = this._getColumnAlignment(column.name);
+          const padding = 5;
 
-          let cellValue = "";
-          const currency = quotation.currency || "KES";
+          // Get cell value
+          let cellValue = this._getCellValue(
+            item,
+            column.name,
+            quotation.currency
+          );
 
-          switch (column.name) {
-            case "item":
-              cellValue = item.item?.name || "";
-              break;
-            case "description":
-              cellValue = item.item?.description || "";
-              break;
-            case "quantity":
-              cellValue = item.quantity?.toString() || "0";
-              break;
-            case "unitPrice":
-              cellValue = `${currency} ${this._formatCurrency(item.unitPrice)}`;
-              break;
-            case "tax":
-              cellValue = item.tax ? `${item.tax}%` : "0%";
-              break;
-            case "total":
-              cellValue = `${currency} ${this._formatCurrency(item.subtotal)}`;
-              break;
-          }
+          // Draw cell text
+          doc.fillColor(styles.textColor);
+          doc.text(cellValue, xOffset + padding, yPosition + 8, {
+            width: width - padding * 2,
+            align: align,
+          });
 
-          doc.text(cellValue, x, currentY + 7, { width: colWidth - 10, align });
+          xOffset += width;
         });
 
-        currentY += rowHeight;
+        yPosition += currentRowHeight;
       });
     }
 
     // Add dividing line
     doc
-      .moveTo(startX, currentY)
-      .lineTo(startX + tableWidth, currentY)
+      .moveTo(startX, yPosition)
+      .lineTo(startX + pageWidth, yPosition)
       .strokeColor(styles.tableBorderColor)
       .stroke();
 
-    doc.y = currentY;
+    // Update document y position
+    doc.y = yPosition + 10;
+  }
+
+  /**
+   * Calculate row height based on content
+   */
+  _calculateRowHeight(doc, item, columns, columnWidths) {
+    let maxHeight = 25; // Default minimum height
+
+    // For each column, calculate the height needed
+    columns.forEach((column, i) => {
+      const cellValue = this._getCellValue(item, column.name, "KES");
+      const width = columnWidths[i] - 10; // Subtract padding
+
+      if (cellValue) {
+        // Get height of text for this cell
+        const textHeight = doc.heightOfString(cellValue, {
+          width: width,
+          align: this._getColumnAlignment(column.name),
+        });
+
+        // Update max height if needed
+        maxHeight = Math.max(maxHeight, textHeight + 16); // Add padding
+      }
+    });
+
+    return maxHeight;
+  }
+
+  /**
+   * Get cell value based on column name
+   */
+  _getCellValue(item, columnName, currency) {
+    switch (columnName) {
+      case "item":
+        return item.item?.name || "";
+      case "description":
+        return item.item?.description || "";
+      case "quantity":
+        return item.quantity?.toString() || "0";
+      case "unitPrice":
+        return `${currency} ${this._formatCurrency(item.unitPrice)}`;
+      case "tax":
+        return item.tax ? `${item.tax}%` : "0%";
+      case "total":
+        return `${currency} ${this._formatCurrency(item.subtotal)}`;
+      default:
+        return "";
+    }
+  }
+
+  /**
+   * Calculate column widths based on content type
+   */
+  _calculateColumnWidths(columns, totalWidth) {
+    // Define column type ratios
+    const columnRatios = {
+      item: 0.2, // 20% of total width
+      description: 0.3, // 30% of total width
+      quantity: 0.1, // 10% of total width
+      unitPrice: 0.14, // 14% of total width
+      tax: 0.11, // 11% of total width
+      total: 0.15, // 15% of total width
+    };
+
+    // Handle case when fewer columns are visible
+    let totalRatio = 0;
+    columns.forEach((col) => {
+      totalRatio += columnRatios[col.name] || 0.15; // Default to 15% if not specified
+    });
+
+    // Adjust ratios proportionally if they don't add up to 1
+    const adjustmentFactor = totalRatio > 0 ? 1 / totalRatio : 1;
+
+    // Calculate actual widths
+    return columns.map((column) => {
+      const ratio = (columnRatios[column.name] || 0.15) * adjustmentFactor;
+      return totalWidth * ratio;
+    });
+  }
+
+  /**
+   * Get alignment based on column type
+   */
+  _getColumnAlignment(columnName) {
+    const rightAlignedColumns = ["quantity", "unitPrice", "tax", "total"];
+    return rightAlignedColumns.includes(columnName) ? "right" : "left";
   }
 
   /**
@@ -494,48 +618,56 @@ class PDFService {
    */
   _addTotals(doc, quotation, styles) {
     const currency = quotation.currency || "KES";
-    const startX = 350;
-    const width = 200;
+    const pageWidth = doc.page.width - 100; // 50px margin on each side
+    const totalWidth = pageWidth * 0.4; // 40% of page width
+    const startX = doc.page.width - 50 - totalWidth; // Right-aligned
     const rowHeight = 20;
-    let currentY = doc.y + 10;
+    let currentY = doc.y + 5;
 
     // Subtotal
-    doc.text("Subtotal:", startX, currentY, { width: 100, align: "right" });
+    doc.text("Subtotal:", startX, currentY, {
+      width: totalWidth * 0.5,
+      align: "right",
+    });
     doc.text(
       `${currency} ${this._formatCurrency(quotation.subtotal)}`,
-      startX + 110,
+      startX + totalWidth * 0.5,
       currentY,
-      { width: 90, align: "right" }
+      { width: totalWidth * 0.5, align: "right" }
     );
     currentY += rowHeight;
 
     // Tax
-    doc.text("Tax:", startX, currentY, { width: 100, align: "right" });
+    doc.text("Tax:", startX, currentY, {
+      width: totalWidth * 0.5,
+      align: "right",
+    });
     doc.text(
       `${currency} ${this._formatCurrency(quotation.taxTotal)}`,
-      startX + 110,
+      startX + totalWidth * 0.5,
       currentY,
-      { width: 90, align: "right" }
+      { width: totalWidth * 0.5, align: "right" }
     );
     currentY += rowHeight;
 
     // Total (highlighted)
     const totalBoxHeight = 30;
     doc
-      .rect(startX, currentY, width, totalBoxHeight)
-      .fillColor(styles.primaryColor + "22") // Add transparency
+      .rect(startX, currentY, totalWidth, totalBoxHeight)
+      .fillColor(styles.totalBgColor)
       .fill();
 
     doc.fillColor(styles.primaryColor).fontSize(styles.subheaderFontSize);
     doc.text("Total:", startX + 10, currentY + 8, {
-      width: 90,
+      width: totalWidth * 0.5 - 10,
       align: "right",
     });
+
     doc.text(
       `${currency} ${this._formatCurrency(quotation.total)}`,
-      startX + 110,
+      startX + totalWidth * 0.5,
       currentY + 8,
-      { width: 90 - 10, align: "right" }
+      { width: totalWidth * 0.5 - 10, align: "right" }
     );
 
     // Reset style
@@ -581,15 +713,19 @@ class PDFService {
     // Signature
     if (footerConfig.showSignature) {
       const signatureY = doc.y + 40;
+      const signatureWidth = 150;
 
       // Draw signature line
       doc
         .moveTo(50, signatureY)
-        .lineTo(200, signatureY)
+        .lineTo(50 + signatureWidth, signatureY)
         .strokeColor(styles.tableBorderColor)
         .stroke();
 
-      doc.text("Authorized Signature", 85, signatureY + 5, { align: "center" });
+      doc.text("Authorized Signature", 50, signatureY + 5, {
+        width: signatureWidth,
+        align: "center",
+      });
     }
 
     // Custom footer text

@@ -112,7 +112,7 @@ const BusinessSettings = () => {
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
-        {/* Logo Upload */}
+        {/* Logo Upload Section - This is where the logo uploader should appear */}
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
             Business Logo
