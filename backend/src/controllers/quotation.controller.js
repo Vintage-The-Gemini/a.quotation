@@ -148,54 +148,106 @@ const quotationController = {
     }
   },
 
+  // backend/src/controllers/quotation.controller.js - generatePDF method
   generatePDF: async (req, res) => {
     try {
+      console.log(
+        "PDF generation request received for quotation:",
+        req.params.id
+      );
       const { templateId } = req.body;
 
-      // Fetch necessary data
-      const [quotation, business] = await Promise.all([
-        Quotation.findOne({
+      // Fetch necessary data with better error handling
+      let quotation, business, template;
+      try {
+        quotation = await Quotation.findOne({
           _id: req.params.id,
           business: req.user.businessId,
-        }).populate("items.item"),
-        Business.findById(req.user.businessId),
-      ]);
+        }).populate("items.item");
 
-      if (!quotation) {
-        return res.status(404).json({
+        if (!quotation) {
+          console.error("Quotation not found:", req.params.id);
+          return res.status(404).json({
+            success: false,
+            message: "Quotation not found",
+          });
+        }
+
+        business = await Business.findById(req.user.businessId);
+        if (!business) {
+          console.error(
+            "Business information not found for user:",
+            req.user.id
+          );
+          return res.status(404).json({
+            success: false,
+            message: "Business information not found",
+          });
+        }
+
+        console.log("Successfully loaded quotation and business data");
+      } catch (fetchError) {
+        console.error("Error fetching data for PDF:", fetchError);
+        return res.status(500).json({
           success: false,
-          message: "Quotation not found",
+          message: "Failed to fetch necessary data for PDF generation",
+          error: fetchError.message,
         });
       }
 
-      // Fetch template if specified
-      let template = null;
+      // Fetch template with better error handling
       if (templateId) {
-        template = await Template.findOne({
-          _id: templateId,
-          businessId: req.user.businessId,
-        });
+        try {
+          template = await Template.findOne({
+            _id: templateId,
+            businessId: req.user.businessId,
+          });
+          console.log("Using requested template:", templateId);
+        } catch (templateError) {
+          console.error("Error fetching requested template:", templateError);
+          // Continue with null template, don't fail the whole process
+        }
       }
 
-      // If no specific template found, try to get the default
       if (!template) {
-        template = await Template.findOne({
-          businessId: req.user.businessId,
-          isDefault: true,
-          type: "quotation",
-        });
+        try {
+          template = await Template.findOne({
+            businessId: req.user.businessId,
+            isDefault: true,
+            type: "quotation",
+          });
+          console.log("Using default template");
+        } catch (defaultTemplateError) {
+          console.error(
+            "Error fetching default template:",
+            defaultTemplateError
+          );
+          // Continue with null template, don't fail the whole process
+        }
       }
 
-      // Generate the PDF using the service
-      const pdfPath = await pdfService.generateQuotationPDF(
-        quotation,
-        template,
-        business
-      );
+      if (!template) {
+        console.log("No template found, will use basic formatting");
+      }
 
-      // Set response headers
-      res.setHeader("Content-Type", "application/pdf");
-      // backend/src/controllers/quotation.controller.js (update the generatePDF method continued)
+      // Generate the PDF with better error handling
+      let pdfPath;
+      try {
+        console.log("Starting PDF generation process");
+        pdfPath = await pdfService.generateQuotationPDF(
+          quotation,
+          template,
+          business
+        );
+        console.log("PDF generated successfully at:", pdfPath);
+      } catch (pdfError) {
+        console.error("PDF service error:", pdfError);
+        return res.status(500).json({
+          success: false,
+          message: "Error generating PDF document",
+          error: pdfError.message,
+        });
+      }
 
       // Set response headers
       res.setHeader("Content-Type", "application/pdf");
@@ -204,21 +256,52 @@ const quotationController = {
         `attachment; filename="quotation-${quotation.quotationNumber}.pdf"`
       );
 
-      // Stream the file to response
-      const fileStream = fs.createReadStream(pdfPath);
-      fileStream.pipe(res);
+      // Stream the file to response with error handling
+      try {
+        console.log("Streaming PDF file to response");
+        const fileStream = fs.createReadStream(pdfPath);
 
-      // Clean up after sending
-      fileStream.on("end", async () => {
-        try {
-          await fs.unlink(pdfPath);
-        } catch (err) {
-          console.error("Error cleaning up temporary file:", err);
-        }
-      });
+        fileStream.on("error", (streamError) => {
+          console.error("Error streaming PDF file:", streamError);
+          // Only send error if headers haven't been sent yet
+          if (!res.headersSent) {
+            return res.status(500).json({
+              success: false,
+              message: "Error streaming PDF file",
+              error: streamError.message,
+            });
+          }
+        });
+
+        fileStream.pipe(res);
+
+        // Clean up after sending
+        fileStream.on("end", async () => {
+          try {
+            // Wait a moment to ensure file is fully delivered before deleting
+            setTimeout(async () => {
+              try {
+                await fs.unlink(pdfPath);
+                console.log("Temporary PDF file cleaned up:", pdfPath);
+              } catch (unlinkError) {
+                console.error("Error cleaning up temporary file:", unlinkError);
+              }
+            }, 1000);
+          } catch (cleanupError) {
+            console.error("Error in cleanup:", cleanupError);
+          }
+        });
+      } catch (streamError) {
+        console.error("Error setting up file stream:", streamError);
+        return res.status(500).json({
+          success: false,
+          message: "Error preparing PDF for download",
+          error: streamError.message,
+        });
+      }
     } catch (error) {
       console.error("PDF generation error:", error);
-      res.status(500).json({
+      return res.status(500).json({
         success: false,
         message: "Failed to generate PDF",
         error: error.message,

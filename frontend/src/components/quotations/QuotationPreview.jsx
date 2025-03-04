@@ -1,7 +1,12 @@
+// frontend/src/components/quotations/QuotationPreview.jsx
 import React from "react";
 
 const QuotationPreview = ({ quotation, template, business }) => {
-  if (!quotation || !template) {
+  if (!quotation) {
+    return <div className="text-center p-4">Quotation data is required</div>;
+  }
+
+  if (!template) {
     return <div className="text-center p-4">Select a template to preview</div>;
   }
 
@@ -19,6 +24,9 @@ const QuotationPreview = ({ quotation, template, business }) => {
         return "shadow-md";
     }
   };
+
+  // Get header layout
+  const headerLayout = template.sections?.header?.layout || "logo-right";
 
   // Format a date string
   const formatDate = (dateString) => {
@@ -59,6 +67,22 @@ const QuotationPreview = ({ quotation, template, business }) => {
     return classes[status] || classes.draft;
   };
 
+  // Get logo URL
+  const getLogoUrl = (logo) => {
+    if (!logo) return null;
+
+    if (typeof logo === "string") {
+      // Legacy format
+      return `/uploads/logos/${logo}`;
+    }
+
+    if (typeof logo === "object" && logo.url) {
+      return logo.url;
+    }
+
+    return null;
+  };
+
   return (
     <div
       className={`bg-white p-8 max-w-4xl mx-auto ${getTemplateClass()}`}
@@ -72,7 +96,7 @@ const QuotationPreview = ({ quotation, template, business }) => {
       <div className="flex justify-between items-start mb-8">
         {/* Business Info */}
         {template.sections?.header?.showBusinessInfo && (
-          <div>
+          <div className={headerLayout === "logo-left" ? "order-2" : "order-1"}>
             <h1
               className="text-2xl font-bold"
               style={{ color: template.style?.primaryColor }}
@@ -87,10 +111,29 @@ const QuotationPreview = ({ quotation, template, business }) => {
           </div>
         )}
 
-        {/* Logo Placeholder */}
+        {/* Logo */}
         {template.sections?.header?.showLogo && (
-          <div className="w-32 h-16 bg-gray-200 flex items-center justify-center rounded">
-            <span className="text-xs text-gray-500">Your Logo</span>
+          <div
+            className={`w-32 h-16 ${
+              headerLayout === "logo-left" ? "order-1" : "order-2"
+            }`}
+          >
+            {business?.logo ? (
+              <img
+                src={getLogoUrl(business.logo)}
+                alt="Business Logo"
+                className="h-full object-contain"
+                onError={(e) => {
+                  console.error("Error loading logo image");
+                  e.target.src =
+                    "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZjBmMGYwIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtc2l6ZT0iMTIiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGFsaWdubWVudC1iYXNlbGluZT0ibWlkZGxlIiBmb250LWZhbWlseT0iQXJpYWwsSGVsdmV0aWNhLHNhbnMtc2VyaWYiIGZpbGw9IiM5OTkiPkxvZ288L3RleHQ+PC9zdmc+";
+                }}
+              />
+            ) : (
+              <div className="w-full h-full bg-gray-200 flex items-center justify-center rounded">
+                <span className="text-xs text-gray-500">Your Logo</span>
+              </div>
+            )}
           </div>
         )}
       </div>

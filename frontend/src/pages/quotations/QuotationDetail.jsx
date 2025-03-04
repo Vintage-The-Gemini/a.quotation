@@ -111,6 +111,7 @@ const QuotationDetail = () => {
     }
   };
 
+  // In frontend/src/pages/quotations/QuotationDetail.jsx
   const handleDownloadPDF = async () => {
     try {
       setIsGeneratingPDF(true);
@@ -131,19 +132,21 @@ const QuotationDetail = () => {
       link.click();
       document.body.removeChild(link);
 
-      // Cleanup the URL
-      window.URL.revokeObjectURL(result.url);
+      // Cleanup the URL after a short delay to ensure download starts
+      setTimeout(() => {
+        window.URL.revokeObjectURL(result.url);
+      }, 2000);
 
       toast.dismiss(toastId);
       toast.success("PDF downloaded successfully");
     } catch (error) {
+      console.error("PDF download error:", error);
       toast.dismiss();
       toast.error(
         typeof error === "string"
           ? error
           : error?.message || "Failed to generate PDF"
       );
-      console.error("PDF generation error:", error);
     } finally {
       setIsGeneratingPDF(false);
     }

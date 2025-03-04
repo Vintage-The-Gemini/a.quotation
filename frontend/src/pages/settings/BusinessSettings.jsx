@@ -1,12 +1,12 @@
+// frontend/src/pages/settings/BusinessSettings.jsx
 import React, { useState, useEffect } from "react";
 import { toast } from "react-hot-toast";
-import { CloudArrowUpIcon } from "@heroicons/react/24/outline";
 import api from "../../services/api";
+import LogoUploader from "../../components/settings/LogoUploader";
 
 const BusinessSettings = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [logo, setLogo] = useState(null);
-  const [previewUrl, setPreviewUrl] = useState("");
   const [formData, setFormData] = useState({
     name: "",
     email: "",
@@ -31,27 +31,30 @@ const BusinessSettings = () => {
 
   const fetchBusinessDetails = async () => {
     try {
+      setIsLoading(true);
       const response = await api.get("/business/settings");
-      const business = response.data.data;
-      setFormData(business);
-      if (business.logo) {
-        setPreviewUrl(`${api.defaults.baseURL}/uploads/${business.logo}`);
+      if (response.data.success) {
+        const business = response.data.data;
+        setFormData(business);
+        // Handle logo data in the state
+        if (business.logo) {
+          setLogo(business.logo);
+        }
+      } else {
+        toast.error(
+          response.data.message || "Failed to fetch business details"
+        );
       }
     } catch (error) {
+      console.error("Error fetching business details:", error);
       toast.error("Failed to fetch business details");
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  const handleLogoChange = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      if (file.size > 2 * 1024 * 1024) {
-        toast.error("Logo must be less than 2MB");
-        return;
-      }
-      setLogo(file);
-      setPreviewUrl(URL.createObjectURL(file));
-    }
+  const handleLogoChange = (newLogo) => {
+    setLogo(newLogo);
   };
 
   const handleSubmit = async (e) => {
@@ -60,9 +63,16 @@ const BusinessSettings = () => {
 
     try {
       const submitData = new FormData();
-      if (logo) {
+
+      // Add logo if it's a file
+      if (logo instanceof File) {
         submitData.append("logo", logo);
+      } else if (logo === null) {
+        // If logo is explicitly set to null, we want to remove it
+        submitData.append("removeLogo", "true");
       }
+
+      // Add the rest of the form data
       submitData.append("data", JSON.stringify(formData));
 
       const response = await api.put("/business/settings", submitData, {
@@ -73,9 +83,18 @@ const BusinessSettings = () => {
 
       if (response.data.success) {
         toast.success("Business settings updated successfully");
+        // Refresh data to get updated logo URLs
+        fetchBusinessDetails();
+      } else {
+        throw new Error(response.data.message || "Failed to update settings");
       }
     } catch (error) {
-      toast.error(error.response?.data?.message || "Failed to update settings");
+      console.error("Error updating business settings:", error);
+      toast.error(
+        error.response?.data?.message ||
+          error.message ||
+          "Failed to update settings"
+      );
     } finally {
       setIsLoading(false);
     }
@@ -98,41 +117,7 @@ const BusinessSettings = () => {
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
             Business Logo
           </label>
-          <div className="mt-1 flex items-center space-x-4">
-            <div className="flex items-center justify-center w-32 h-32 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg overflow-hidden">
-              {previewUrl ? (
-                <img
-                  src={previewUrl}
-                  alt="Business logo"
-                  className="w-full h-full object-contain"
-                />
-              ) : (
-                <div className="text-center">
-                  <CloudArrowUpIcon className="mx-auto h-12 w-12 text-gray-400" />
-                  <p className="mt-1 text-xs text-gray-500">Upload logo</p>
-                </div>
-              )}
-            </div>
-            <div className="flex flex-col">
-              <label className="block">
-                <span className="sr-only">Choose logo</span>
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={handleLogoChange}
-                  className="block w-full text-sm text-gray-500 dark:text-gray-400
-                    file:mr-4 file:py-2 file:px-4
-                    file:rounded-md file:border-0
-                    file:text-sm file:font-medium
-                    file:bg-blue-50 file:text-blue-700
-                    dark:file:bg-blue-900 dark:file:text-blue-200
-                    hover:file:bg-blue-100 dark:hover:file:bg-blue-800
-                    transition-colors"
-                />
-              </label>
-              <p className="mt-1 text-xs text-gray-500">PNG, JPG up to 2MB</p>
-            </div>
-          </div>
+          <LogoUploader currentLogo={logo} onChange={handleLogoChange} />
         </div>
 
         {/* Business Information */}
@@ -192,7 +177,7 @@ const BusinessSettings = () => {
               Currency
             </label>
             <select
-              value={formData.settings.currency}
+              value={formData.settings?.currency || "KES"}
               onChange={(e) =>
                 setFormData({
                   ...formData,
@@ -223,7 +208,7 @@ const BusinessSettings = () => {
               </label>
               <input
                 type="text"
-                value={formData.address.street}
+                value={formData.address?.street || ""}
                 onChange={(e) =>
                   setFormData({
                     ...formData,
@@ -242,7 +227,7 @@ const BusinessSettings = () => {
               </label>
               <input
                 type="text"
-                value={formData.address.city}
+                value={formData.address?.city || ""}
                 onChange={(e) =>
                   setFormData({
                     ...formData,
@@ -261,7 +246,7 @@ const BusinessSettings = () => {
               </label>
               <input
                 type="text"
-                value={formData.address.state}
+                value={formData.address?.state || ""}
                 onChange={(e) =>
                   setFormData({
                     ...formData,
@@ -280,7 +265,7 @@ const BusinessSettings = () => {
               </label>
               <input
                 type="text"
-                value={formData.address.zipCode}
+                value={formData.address?.zipCode || ""}
                 onChange={(e) =>
                   setFormData({
                     ...formData,
@@ -299,7 +284,7 @@ const BusinessSettings = () => {
               </label>
               <input
                 type="text"
-                value={formData.address.country}
+                value={formData.address?.country || ""}
                 onChange={(e) =>
                   setFormData({
                     ...formData,

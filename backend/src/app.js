@@ -11,18 +11,29 @@ const connectDB = require("./config/database");
 // Load env vars first
 dotenv.config();
 
-// Ensure temp directory exists for file operations
-const tempDir = path.join(__dirname, "..", "temp");
+// Create necessary directories for file operations
+const setupDirectories = async () => {
+  const dirs = [
+    path.join(__dirname, "..", "temp"),
+    path.join(__dirname, "..", "uploads"),
+    path.join(__dirname, "..", "uploads/logos"),
+    path.join(__dirname, "..", "uploads/documents"),
+  ];
 
-// Create temp directory if it doesn't exist
-try {
-  if (!fs.existsSync(tempDir)) {
-    fs.mkdirSync(tempDir, { recursive: true });
-    console.log("Created temp directory:", tempDir);
+  for (const dir of dirs) {
+    try {
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+        console.log(`Created directory: ${dir}`);
+      }
+    } catch (error) {
+      console.error(`Error creating directory ${dir}:`, error);
+    }
   }
-} catch (error) {
-  console.error("Error creating temp directory:", error);
-}
+};
+
+// Set up directories
+setupDirectories();
 
 // Connect to database
 connectDB();
@@ -30,7 +41,12 @@ connectDB();
 const app = express();
 
 // Security Middleware
-app.use(helmet());
+app.use(
+  helmet({
+    contentSecurityPolicy: false, // Needed for displaying PDF in browser
+    crossOriginResourcePolicy: { policy: "cross-origin" }, // Allow loading resources
+  })
+);
 app.use(cors());
 
 // Request logging in development
@@ -58,10 +74,8 @@ app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/templates", templateRoutes);
 app.use("/api/business", businessRoutes);
 
-// Serve uploaded files
-app.use("/uploads", express.static("uploads"));
-
-// Serve temp files (for PDF downloads, etc.)
+// Serve static files
+app.use("/uploads", express.static(path.join(__dirname, "..", "uploads")));
 app.use("/temp", express.static(path.join(__dirname, "..", "temp")));
 
 // Basic route for testing
@@ -70,6 +84,8 @@ app.get("/api/status", (req, res) => {
     status: "success",
     message: "API is running",
     timestamp: new Date(),
+    environment: process.env.NODE_ENV,
+    storage: process.env.USE_CLOUDINARY === "true" ? "cloudinary" : "local",
   });
 });
 
@@ -93,7 +109,12 @@ app.use((err, req, res, next) => {
 const PORT = process.env.PORT || 5000;
 
 const server = app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`Server running on port ${PORT} in ${process.env.NODE_ENV} mode`);
+  console.log(
+    `File storage: ${
+      process.env.USE_CLOUDINARY === "true" ? "Cloudinary" : "Local storage"
+    }`
+  );
 });
 
 // Handle unhandled promise rejections

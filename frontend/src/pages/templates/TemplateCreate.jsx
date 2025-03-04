@@ -235,7 +235,6 @@ const TemplateCreate = () => {
           <h2 className="text-lg font-medium text-gray-900 dark:text-white mb-4">
             Section Settings
           </h2>
-
           {/* Header Settings */}
           <div className="mb-6">
             <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">
@@ -294,6 +293,32 @@ const TemplateCreate = () => {
                 >
                   Show Business Information
                 </label>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Header Layout
+                </label>
+                <select
+                  value={formData.sections.header.layout || "logo-right"}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      sections: {
+                        ...prev.sections,
+                        header: {
+                          ...prev.sections.header,
+                          layout: e.target.value,
+                        },
+                      },
+                    }))
+                  }
+                  className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                >
+                  <option value="logo-right">Logo on Right</option>
+                  <option value="logo-left">Logo on Left</option>
+                  <option value="centered">Centered Logo</option>
+                </select>
               </div>
             </div>
           </div>

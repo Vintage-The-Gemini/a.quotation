@@ -1,44 +1,9 @@
-// controllers/business.controller.js
+// backend/src/controllers/business.controller.js
 const Business = require("../models/Business");
-const multer = require("multer");
+const { uploadLogo } = require("../middlewares/upload.middleware");
+const storageService = require("../services/storage.service");
 const path = require("path");
 const fs = require("fs").promises;
-
-// Configure multer for logo upload
-const storage = multer.diskStorage({
-  destination: async function (req, file, cb) {
-    const uploadDir = "uploads/logos";
-    try {
-      await fs.mkdir(uploadDir, { recursive: true });
-      cb(null, uploadDir);
-    } catch (error) {
-      cb(error, null);
-    }
-  },
-  filename: function (req, file, cb) {
-    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
-    cb(null, "logo-" + uniqueSuffix + path.extname(file.originalname));
-  },
-});
-
-const upload = multer({
-  storage: storage,
-  limits: {
-    fileSize: 2 * 1024 * 1024, // 2MB limit
-  },
-  fileFilter: function (req, file, cb) {
-    const filetypes = /jpeg|jpg|png/;
-    const mimetype = filetypes.test(file.mimetype);
-    const extname = filetypes.test(
-      path.extname(file.originalname).toLowerCase()
-    );
-
-    if (mimetype && extname) {
-      return cb(null, true);
-    }
-    cb(new Error("Only .png, .jpg and .jpeg format allowed!"));
-  },
-});
 
 // Get business settings
 exports.getBusinessSettings = async (req, res) => {
@@ -68,24 +33,23 @@ exports.getBusinessSettings = async (req, res) => {
 // Update business settings
 exports.updateBusinessSettings = async (req, res) => {
   try {
-    upload.single("logo")(req, res, async function (err) {
-      if (err instanceof multer.MulterError) {
-        return res.status(400).json({
-          success: false,
-          message: "File upload error",
-          error: err.message,
-        });
-      } else if (err) {
-        return res.status(400).json({
-          success: false,
-          message: err.message,
-        });
+    // Process the upload
+    uploadLogo(req, res, async function (err) {
+      if (err) {
+        // Error already handled by middleware
+        return;
       }
 
       try {
-        const businessData = JSON.parse(req.body.data);
-        const business = await Business.findById(req.user.businessId);
+        // Parse business data
+        let businessData;
+        if (req.body.data) {
+          businessData = JSON.parse(req.body.data);
+        } else {
+          businessData = req.body;
+        }
 
+        const business = await Business.findById(req.user.businessId);
         if (!business) {
           return res.status(404).json({
             success: false,
@@ -93,21 +57,24 @@ exports.updateBusinessSettings = async (req, res) => {
           });
         }
 
-        // If new logo uploaded, delete old one
-        if (req.file && business.logo) {
-          try {
-            await fs.unlink(path.join("uploads/logos", business.logo));
-          } catch (error) {
-            console.error("Error deleting old logo:", error);
+        // Handle logo upload
+        let logoData = business.logo;
+        if (req.file) {
+          // Delete old logo if exists
+          if (business.logo && business.logo.url) {
+            await storageService.deleteFile(business.logo);
           }
+
+          // Save new logo
+          logoData = await storageService.saveFile(req.file, "logos");
         }
 
-        // Update business data
+        // Update business with new data
         const updatedBusiness = await Business.findByIdAndUpdate(
           req.user.businessId,
           {
             ...businessData,
-            logo: req.file ? req.file.filename : business.logo,
+            logo: req.file ? logoData : business.logo,
           },
           { new: true, runValidators: true }
         );
@@ -117,6 +84,7 @@ exports.updateBusinessSettings = async (req, res) => {
           data: updatedBusiness,
         });
       } catch (error) {
+        console.error("Error updating business:", error);
         res.status(500).json({
           success: false,
           message: "Error updating business settings",
@@ -125,6 +93,7 @@ exports.updateBusinessSettings = async (req, res) => {
       }
     });
   } catch (error) {
+    console.error("Error processing request:", error);
     res.status(500).json({
       success: false,
       message: "Error processing request",
@@ -138,15 +107,21 @@ exports.getBusinessLogo = async (req, res) => {
   try {
     const business = await Business.findById(req.user.businessId);
 
-    if (!business || !business.logo) {
+    if (!business || !business.logo || !business.logo.url) {
       return res.status(404).json({
         success: false,
         message: "Logo not found",
       });
     }
 
-    const logoPath = path.join("uploads/logos", business.logo);
-    res.sendFile(path.resolve(logoPath));
+    // If using Cloudinary, redirect to the URL
+    if (business.logo.isCloudinary) {
+      return res.redirect(business.logo.url);
+    }
+
+    // Otherwise serve from local filesystem
+    const logoPath = path.join(process.cwd(), business.logo.url);
+    res.sendFile(logoPath);
   } catch (error) {
     res.status(500).json({
       success: false,

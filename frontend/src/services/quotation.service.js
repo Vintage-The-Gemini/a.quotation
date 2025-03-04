@@ -60,6 +60,7 @@ const quotationService = {
     }
   },
 
+  // frontend/src/services/quotation.service.js - generatePDF method
   generatePDF: async (id, templateId) => {
     if (!id) return Promise.reject("Quotation ID is required");
 
@@ -72,27 +73,55 @@ const quotationService = {
         { templateId: templateId || null },
         {
           responseType: "blob",
-          headers: { Accept: "application/pdf" },
+          headers: { Accept: "application/pdf, application/json" },
           timeout: 60000, // Increase timeout to 60 seconds
         }
       );
 
       // Check if the response is valid
-      if (!response.data || !(response.data instanceof Blob)) {
-        console.error("Invalid response format:", response);
-        throw new Error("Invalid PDF response received");
+      if (!response.data) {
+        console.error("Empty response received");
+        throw new Error("No data received from server");
       }
 
-      // Check if the response is a PDF or an error message
-      const contentType = response.headers["content-type"];
-      if (contentType && contentType.includes("application/json")) {
-        // This is an error response in JSON format
-        const reader = new FileReader();
+      // Additional debugging
+      console.log("PDF generation response:", {
+        status: response.status,
+        statusText: response.statusText,
+        contentType: response.headers["content-type"],
+        dataSize: response.data ? response.data.size : "No data",
+        dataType: response.data ? response.data.type : "Unknown",
+      });
+
+      // Check if we got a JSON error response instead of a PDF
+      const contentType = response.headers["content-type"] || "";
+      const dataType = response.data.type || "";
+
+      if (
+        contentType.includes("application/json") ||
+        contentType.includes("text/plain") ||
+        dataType.includes("application/json") ||
+        dataType.includes("text/plain")
+      ) {
+        // This is likely an error response in JSON format
         return new Promise((resolve, reject) => {
+          const reader = new FileReader();
           reader.onload = () => {
             try {
-              const errorData = JSON.parse(reader.result);
-              reject(errorData.message || "Server returned an error");
+              const text = reader.result;
+              console.log("Error response content:", text);
+
+              try {
+                const errorData = JSON.parse(text);
+                reject(
+                  errorData.message ||
+                    errorData.error ||
+                    "Server returned an error"
+                );
+              } catch (parseError) {
+                // If not valid JSON, just return the text
+                reject(text || "Server returned an error");
+              }
             } catch (e) {
               reject("Failed to parse error response");
             }
@@ -102,6 +131,7 @@ const quotationService = {
         });
       }
 
+      // If we got here, it's a PDF response
       // Create a blob URL for the PDF
       const blob = new Blob([response.data], { type: "application/pdf" });
       const url = URL.createObjectURL(blob);
@@ -110,26 +140,60 @@ const quotationService = {
     } catch (error) {
       console.error("PDF generation error:", error);
 
-      // Extract error message from response if possible
-      if (error.response && error.response.data) {
-        if (error.response.data instanceof Blob) {
-          try {
-            const text = await error.response.data.text();
-            try {
-              const errorData = JSON.parse(text);
-              return Promise.reject(errorData.message || "Server error");
-            } catch {
-              return Promise.reject(text || "Server error");
-            }
-          } catch {
-            return Promise.reject(`Server error: ${error.response.status}`);
+      // Full error details for debugging
+      if (error.response) {
+        console.error("Response status:", error.response.status);
+        console.error("Response headers:", error.response.headers);
+
+        // Try to extract error message from response
+        if (error.response.data) {
+          if (error.response.data instanceof Blob) {
+            // Try to read error message from blob
+            return new Promise((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onload = () => {
+                try {
+                  const text = reader.result;
+                  console.error("Error blob content:", text);
+
+                  try {
+                    const errorData = JSON.parse(text);
+                    reject(
+                      errorData.message || errorData.error || "Server error"
+                    );
+                  } catch (parseError) {
+                    reject(text || "Server error");
+                  }
+                } catch (readError) {
+                  reject(`Failed to read error response: ${readError.message}`);
+                }
+              };
+              reader.onerror = () => {
+                reject(`Failed to read error response: ${reader.error}`);
+              };
+              reader.readAsText(error.response.data);
+            });
+          } else if (typeof error.response.data === "object") {
+            return Promise.reject(
+              error.response.data.message ||
+                error.response.data.error ||
+                "Server error"
+            );
           }
-        } else {
-          return Promise.reject(
-            error.response.data?.message ||
-              `Server error: ${error.response.status}`
-          );
         }
+      }
+
+      // Network or other errors
+      if (error.message && error.message.includes("timeout")) {
+        return Promise.reject(
+          "PDF generation timed out. The server might be busy or the document is too complex."
+        );
+      }
+
+      if (error.message && error.message.includes("Network Error")) {
+        return Promise.reject(
+          "Network error. Please check your connection and try again."
+        );
       }
 
       return Promise.reject(error.message || "Failed to generate PDF");
