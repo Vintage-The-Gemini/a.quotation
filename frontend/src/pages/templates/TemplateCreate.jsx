@@ -22,6 +22,7 @@ const TemplateCreate = () => {
         showLogo: true,
         showBusinessInfo: true,
         showQuotationNumber: true,
+        layout: "logo-right",
       },
       customerInfo: {
         position: "left",
@@ -147,6 +148,29 @@ const TemplateCreate = () => {
                 }
                 className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
               />
+            </div>
+
+            <div>
+              <div className="flex items-center">
+                <input
+                  id="isDefault"
+                  type="checkbox"
+                  checked={formData.isDefault}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      isDefault: e.target.checked,
+                    }))
+                  }
+                  className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                />
+                <label
+                  htmlFor="isDefault"
+                  className="ml-2 block text-sm text-gray-700 dark:text-gray-300"
+                >
+                  Set as Default Template
+                </label>
+              </div>
             </div>
           </div>
         </div>
@@ -320,6 +344,37 @@ const TemplateCreate = () => {
                   <option value="centered">Centered Logo</option>
                 </select>
               </div>
+            </div>
+          </div>
+
+          {/* Customer Info Settings */}
+          <div className="mb-6">
+            <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">
+              Customer Information
+            </h3>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                Position
+              </label>
+              <select
+                value={formData.sections.customerInfo.position}
+                onChange={(e) =>
+                  setFormData((prev) => ({
+                    ...prev,
+                    sections: {
+                      ...prev.sections,
+                      customerInfo: {
+                        ...prev.sections.customerInfo,
+                        position: e.target.value,
+                      },
+                    },
+                  }))
+                }
+                className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+              >
+                <option value="left">Left</option>
+                <option value="right">Right</option>
+              </select>
             </div>
           </div>
 

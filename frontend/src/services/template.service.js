@@ -1,4 +1,4 @@
-// /frontend/src/services/template.service.js
+// frontend/src/services/template.service.js
 
 import api from "./api";
 

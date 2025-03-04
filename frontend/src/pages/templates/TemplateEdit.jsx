@@ -1,4 +1,3 @@
-// frontend/src/pages/templates/TemplateEdit.jsx
 import { useState, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { toast } from "react-hot-toast";

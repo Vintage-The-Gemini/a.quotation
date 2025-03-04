@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "react-hot-toast";
 import { PlusIcon, PencilIcon, TrashIcon } from "@heroicons/react/24/outline";
-import api from "../../services/api";
+import templateService from "../../services/template.service";
 
 const TemplateList = () => {
   const [templates, setTemplates] = useState([]);
@@ -14,9 +14,15 @@ const TemplateList = () => {
 
   const fetchTemplates = async () => {
     try {
-      const response = await api.get("/templates");
-      setTemplates(response.data.data);
+      setIsLoading(true);
+      const response = await templateService.getTemplates();
+      if (response.success) {
+        setTemplates(response.data);
+      } else {
+        toast.error(response.message || "Failed to fetch templates");
+      }
     } catch (error) {
+      console.error("Error fetching templates:", error);
       toast.error("Failed to fetch templates");
     } finally {
       setIsLoading(false);
@@ -29,21 +35,31 @@ const TemplateList = () => {
     }
 
     try {
-      await api.delete(`/templates/${id}`);
-      toast.success("Template deleted successfully");
-      setTemplates(templates.filter((template) => template._id !== id));
+      const response = await templateService.deleteTemplate(id);
+      if (response.success) {
+        toast.success("Template deleted successfully");
+        setTemplates(templates.filter((template) => template._id !== id));
+      } else {
+        toast.error(response.message || "Failed to delete template");
+      }
     } catch (error) {
+      console.error("Error deleting template:", error);
       toast.error("Failed to delete template");
     }
   };
 
   const handleSetDefault = async (id) => {
     try {
-      await api.put(`/templates/${id}`, { isDefault: true });
-      toast.success("Default template updated");
-      fetchTemplates();
+      const response = await templateService.setDefaultTemplate(id);
+      if (response.success) {
+        toast.success("Default template updated");
+        fetchTemplates(); // Refresh to update all templates
+      } else {
+        toast.error(response.message || "Failed to set default template");
+      }
     } catch (error) {
-      toast.error("Failed to update default template");
+      console.error("Error setting default template:", error);
+      toast.error("Failed to set default template");
     }
   };
 

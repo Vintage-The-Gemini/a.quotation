@@ -1,4 +1,3 @@
-// frontend/src/components/quotations/QuotationPreview.jsx
 import React from "react";
 
 const QuotationPreview = ({ quotation, template, business }) => {
