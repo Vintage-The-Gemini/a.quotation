@@ -1,5 +1,7 @@
+// backend/src/services/pdf.service.js (improve the existing file)
+
 const PDFDocument = require("pdfkit");
-const fs = require("fs");
+const fs = require("fs").promises;
 const path = require("path");
 
 class PDFService {
@@ -14,11 +16,13 @@ class PDFService {
         });
 
         // Set up the file path
-        const filePath = path.join(
-          __dirname,
-          "../temp",
-          `quotation-${quotation._id}.pdf`
-        );
+        const tempDir = path.join(__dirname, "../temp");
+        // Create temp directory if it doesn't exist
+        fs.mkdir(tempDir, { recursive: true }).catch((err) => {
+          console.log("Directory exists or error creating:", err);
+        });
+
+        const filePath = path.join(tempDir, `quotation-${quotation._id}.pdf`);
         const writeStream = fs.createWriteStream(filePath);
 
         // Handle stream errors

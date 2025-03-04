@@ -1,3 +1,4 @@
+// frontend/src/pages/quotations/QuotationDetail.jsx
 import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { toast } from "react-hot-toast";
@@ -7,10 +8,13 @@ import {
   PencilSquareIcon,
   CheckCircleIcon,
   XCircleIcon,
+  EyeIcon,
 } from "@heroicons/react/24/outline";
 import quotationService from "../../services/quotation.service";
 import templateService from "../../services/template.service";
+import businessService from "../../services/business.service";
 import { useTheme } from "../../context/ThemeContext";
+import QuotationPreview from "../../components/quotations/QuotationPreview";
 
 const QuotationDetail = () => {
   const { id } = useParams();
@@ -29,7 +33,11 @@ const QuotationDetail = () => {
     recipientEmail: "",
     message: "",
   });
+  const [previewMode, setPreviewMode] = useState(false);
+  const [business, setBusiness] = useState(null);
+  const [currentTemplate, setCurrentTemplate] = useState(null);
 
+  // frontend/src/pages/quotations/QuotationDetail.jsx (continued)
   useEffect(() => {
     const fetchData = async () => {
       setIsLoading(true);
@@ -58,7 +66,14 @@ const QuotationDetail = () => {
           );
           if (defaultTemplate) {
             setSelectedTemplate(defaultTemplate._id);
+            setCurrentTemplate(defaultTemplate);
           }
+        }
+
+        // Fetch business info
+        const businessResponse = await businessService.getSettings();
+        if (businessResponse.success) {
+          setBusiness(businessResponse.data);
         }
       } catch (error) {
         console.error("Error fetching data:", error);
@@ -76,6 +91,14 @@ const QuotationDetail = () => {
     fetchData();
   }, [id, navigate]);
 
+  // Update current template when selection changes
+  useEffect(() => {
+    if (selectedTemplate && templates.length > 0) {
+      const template = templates.find((t) => t._id === selectedTemplate);
+      setCurrentTemplate(template);
+    }
+  }, [selectedTemplate, templates]);
+
   const handleStatusChange = async (newStatus) => {
     try {
       const response = await quotationService.updateStatus(id, newStatus);
@@ -88,18 +111,14 @@ const QuotationDetail = () => {
     }
   };
 
-  // Update the handleDownloadPDF function
-
   const handleDownloadPDF = async () => {
     try {
       setIsGeneratingPDF(true);
       const toastId = toast.loading("Generating PDF...");
 
-      console.log("Starting PDF generation...");
       // Generate PDF using the service
       const result = await quotationService.generatePDF(id, selectedTemplate);
 
-      console.log("PDF generation completed:", result);
       if (!result || !result.url) {
         throw new Error("PDF generation failed: Invalid response from server");
       }
@@ -110,27 +129,21 @@ const QuotationDetail = () => {
       link.download = `quotation-${quotation.quotationNumber}.pdf`;
       document.body.appendChild(link);
       link.click();
+      document.body.removeChild(link);
 
-      // Small delay before cleanup
-      setTimeout(() => {
-        document.body.removeChild(link);
-        // Cleanup the URL
-        window.URL.revokeObjectURL(result.url);
-      }, 100);
+      // Cleanup the URL
+      window.URL.revokeObjectURL(result.url);
 
       toast.dismiss(toastId);
       toast.success("PDF downloaded successfully");
     } catch (error) {
-      console.error("PDF generation error:", error);
       toast.dismiss();
-
-      // Provide a clear error message
-      const errorMessage =
+      toast.error(
         typeof error === "string"
           ? error
-          : error?.message || "Failed to generate PDF";
-
-      toast.error(errorMessage);
+          : error?.message || "Failed to generate PDF"
+      );
+      console.error("PDF generation error:", error);
     } finally {
       setIsGeneratingPDF(false);
     }
@@ -188,7 +201,6 @@ const QuotationDetail = () => {
       currency: "KES",
     }).format(amount);
   };
-  // ... (keep all the imports, state, and handlers from part 1)
 
   // Email Modal Component
   const EmailModal = () => (
@@ -325,6 +337,14 @@ const QuotationDetail = () => {
               Duplicate
             </button>
 
+            <button
+              onClick={() => setPreviewMode(!previewMode)}
+              className="inline-flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 dark:focus:ring-offset-gray-800 transition-colors"
+            >
+              <EyeIcon className="h-5 w-5 mr-2" />
+              {previewMode ? "Hide Preview" : "Show Preview"}
+            </button>
+
             {templates.length > 0 && (
               <select
                 value={selectedTemplate || ""}
@@ -359,6 +379,22 @@ const QuotationDetail = () => {
             </button>
           </div>
         </div>
+
+        {/* Preview Mode */}
+        {previewMode && (
+          <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-6 mb-6 overflow-auto">
+            <h2 className="text-lg font-medium text-gray-900 dark:text-white mb-4">
+              Quotation Preview
+            </h2>
+            <div className="border rounded p-4">
+              <QuotationPreview
+                quotation={quotation}
+                template={currentTemplate}
+                business={business}
+              />
+            </div>
+          </div>
+        )}
 
         {/* Customer Information and Summary */}
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -489,8 +525,6 @@ const QuotationDetail = () => {
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white text-right">
                       {item.quantity}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white text-right"></td>
-                    {/* Continuing from the items table */}
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white text-right">
                       {formatCurrency(item.unitPrice)}
                     </td>
@@ -583,60 +617,6 @@ const QuotationDetail = () => {
             </button>
           )}
         </div>
-
-        {/* Status History */}
-        {quotation.statusHistory && quotation.statusHistory.length > 0 && (
-          <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-6 mt-6">
-            <h2 className="text-lg font-medium text-gray-900 dark:text-white mb-4">
-              Status History
-            </h2>
-            <div className="flow-root">
-              <ul className="-mb-8">
-                {quotation.statusHistory.map((statusChange, index) => (
-                  <li key={index}>
-                    <div className="relative pb-8">
-                      {index !== quotation.statusHistory.length - 1 && (
-                        <span
-                          className="absolute top-4 left-4 -ml-px h-full w-0.5 bg-gray-200 dark:bg-gray-700"
-                          aria-hidden="true"
-                        />
-                      )}
-                      <div className="relative flex space-x-3">
-                        <div>
-                          <span
-                            className={`h-8 w-8 rounded-full flex items-center justify-center ring-8 ring-white dark:ring-gray-800 ${getStatusBadgeClass(
-                              statusChange.status
-                            )}`}
-                          >
-                            {statusChange.status === "accepted" && (
-                              <CheckCircleIcon className="h-5 w-5" />
-                            )}
-                            {statusChange.status === "rejected" && (
-                              <XCircleIcon className="h-5 w-5" />
-                            )}
-                          </span>
-                        </div>
-                        <div className="min-w-0 flex-1 pt-1.5 flex justify-between space-x-4">
-                          <div>
-                            <p className="text-sm text-gray-500 dark:text-gray-400">
-                              Changed to{" "}
-                              <span className="font-medium text-gray-900 dark:text-white">
-                                {statusChange.status}
-                              </span>
-                            </p>
-                          </div>
-                          <div className="text-right text-sm whitespace-nowrap text-gray-500 dark:text-gray-400">
-                            {new Date(statusChange.date).toLocaleString()}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </div>
-        )}
       </div>
 
       {/* Email Modal */}

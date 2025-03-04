@@ -5,6 +5,7 @@ const Template = require("../models/Template");
 const Business = require("../models/Business");
 const fs = require("fs");
 const path = require("path");
+const pdfService = require("../services/pdf.service");
 
 const quotationController = {
   // Create new quotation
@@ -147,22 +148,18 @@ const quotationController = {
     }
   },
 
-  // Generate PDF
   generatePDF: async (req, res) => {
-    const tempDir = path.join(__dirname, "..", "..", "temp");
-    let tempPath = null;
-
     try {
-      // Ensure temp directory exists
-      await fs.promises.mkdir(tempDir, { recursive: true });
-
       const { templateId } = req.body;
 
-      // Get quotation with populated items
-      const quotation = await Quotation.findOne({
-        _id: req.params.id,
-        business: req.user.businessId,
-      }).populate("items.item");
+      // Fetch necessary data
+      const [quotation, business] = await Promise.all([
+        Quotation.findOne({
+          _id: req.params.id,
+          business: req.user.businessId,
+        }).populate("items.item"),
+        Business.findById(req.user.businessId),
+      ]);
 
       if (!quotation) {
         return res.status(404).json({
@@ -171,132 +168,61 @@ const quotationController = {
         });
       }
 
-      // Get business info
-      const business = await Business.findById(req.user.businessId);
-
-      // Generate a unique filename for this PDF
-      const filename = `quotation-${
-        quotation.quotationNumber
-      }-${Date.now()}.pdf`;
-      tempPath = path.join(tempDir, filename);
-
-      // Create a new PDF document
-      const doc = new PDFDocument({ size: "A4", margin: 50 });
-
-      // Create write stream with proper error handling
-      const stream = fs.createWriteStream(tempPath);
-
-      // Set up error handling for the stream
-      stream.on("error", (error) => {
-        console.error("Stream error:", error);
-        if (!res.headersSent) {
-          res.status(500).json({
-            success: false,
-            message: "Error generating PDF: Stream error",
-            error: error.message,
-          });
-        }
-      });
-
-      // Pipe the PDF to the write stream
-      doc.pipe(stream);
-
-      // Add content to the PDF
-      doc.fontSize(16).text("Quotation", { align: "center" });
-
-      doc.fontSize(12).moveDown();
-      doc.text(`Quotation #: ${quotation.quotationNumber}`);
-      doc.text(`Date: ${new Date(quotation.createdAt).toLocaleDateString()}`);
-      doc.text(`Customer: ${quotation.customer.name}`);
-
-      doc.moveDown();
-      doc.text("Items:", { underline: true });
-
-      // Basic table for items
-      let y = doc.y + 20;
-      doc.fontSize(10);
-
-      // Draw simple headers
-      doc.text("Item", 50, y);
-      doc.text("Qty", 200, y);
-      doc.text("Price", 250, y);
-      doc.text("Total", 350, y);
-
-      y += 20;
-
-      // Draw items
-      if (quotation.items && quotation.items.length > 0) {
-        quotation.items.forEach((item) => {
-          if (item && item.item) {
-            doc.text(item.item.name || "Unknown Item", 50, y);
-            doc.text(String(item.quantity || 0), 200, y);
-            doc.text(`${(item.unitPrice || 0).toFixed(2)}`, 250, y);
-            doc.text(`${(item.subtotal || 0).toFixed(2)}`, 350, y);
-            y += 20;
-          }
+      // Fetch template if specified
+      let template = null;
+      if (templateId) {
+        template = await Template.findOne({
+          _id: templateId,
+          businessId: req.user.businessId,
         });
-      } else {
-        doc.text("No items", 50, y);
       }
 
-      // Add totals
-      y += 20;
-      doc.text(`Subtotal: ${(quotation.subtotal || 0).toFixed(2)}`, 250, y);
-      y += 20;
-      doc.text(`Tax: ${(quotation.taxTotal || 0).toFixed(2)}`, 250, y);
-      y += 20;
-      doc
-        .fontSize(12)
-        .text(`Total: ${(quotation.total || 0).toFixed(2)}`, 250, y);
+      // If no specific template found, try to get the default
+      if (!template) {
+        template = await Template.findOne({
+          businessId: req.user.businessId,
+          isDefault: true,
+          type: "quotation",
+        });
+      }
 
-      // Finalize the PDF
-      doc.end();
+      // Generate the PDF using the service
+      const pdfPath = await pdfService.generateQuotationPDF(
+        quotation,
+        template,
+        business
+      );
 
-      // Wait for the stream to finish
-      await new Promise((resolve, reject) => {
-        stream.on("finish", resolve);
-        stream.on("error", reject);
-      });
+      // Set response headers
+      res.setHeader("Content-Type", "application/pdf");
+      // backend/src/controllers/quotation.controller.js (update the generatePDF method continued)
 
-      // Send the file
+      // Set response headers
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader(
         "Content-Disposition",
-        `attachment; filename="${filename}"`
+        `attachment; filename="quotation-${quotation.quotationNumber}.pdf"`
       );
 
-      // Create a read stream and pipe it to the response
-      const readStream = fs.createReadStream(tempPath);
-      readStream.pipe(res);
+      // Stream the file to response
+      const fileStream = fs.createReadStream(pdfPath);
+      fileStream.pipe(res);
 
-      // Clean up the temp file after it's sent
-      readStream.on("end", () => {
-        fs.unlink(tempPath, (err) => {
-          if (err) console.error("Error removing temp file:", err);
-        });
+      // Clean up after sending
+      fileStream.on("end", async () => {
+        try {
+          await fs.unlink(pdfPath);
+        } catch (err) {
+          console.error("Error cleaning up temporary file:", err);
+        }
       });
     } catch (error) {
       console.error("PDF generation error:", error);
-
-      // Clean up the temp file if it exists and an error occurred
-      if (tempPath) {
-        try {
-          fs.unlink(tempPath, (err) => {
-            if (err) console.error("Error removing temp file:", err);
-          });
-        } catch (unlinkError) {
-          console.error("Error removing temp file:", unlinkError);
-        }
-      }
-
-      // Only send error response if headers haven't been sent
-      if (!res.headersSent) {
-        res.status(500).json({
-          success: false,
-          message: "Failed to generate PDF",
-          error: error.message,
-        });
-      }
+      res.status(500).json({
+        success: false,
+        message: "Failed to generate PDF",
+        error: error.message,
+      });
     }
   },
 
