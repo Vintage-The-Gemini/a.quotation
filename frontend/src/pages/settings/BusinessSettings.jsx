@@ -5,11 +5,9 @@ import api from "../../services/api";
 import LogoUploader from "../../components/settings/LogoUploader";
 
 const BusinessSettings = () => {
-  const [isLoading, setIsLoading] = useState(false);
-  const [isLogoLoading, setIsLogoLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
   const [logo, setLogo] = useState(null);
-  const [logoChanged, setLogoChanged] = useState(false);
-  const [logoAction, setLogoAction] = useState(null); // 'add', 'remove', or null
   const [formData, setFormData] = useState({
     name: "",
     email: "",
@@ -22,231 +20,160 @@ const BusinessSettings = () => {
       country: "",
     },
     settings: {
-      theme: "modern",
-      quotationPrefix: "QT",
       currency: "KES",
+      quotationPrefix: "QT",
     },
   });
 
   useEffect(() => {
-    fetchBusinessDetails();
+    fetchBusinessData();
   }, []);
 
-  const fetchBusinessDetails = async () => {
+  const fetchBusinessData = async () => {
     try {
       setIsLoading(true);
       const response = await api.get("/business/settings");
-      console.log("Fetched business details:", response.data);
 
       if (response.data.success) {
         const business = response.data.data;
-        setFormData(business);
-        // Handle logo data in the state
+        // Initialize form with business data
+        setFormData({
+          name: business.name || "",
+          email: business.email || "",
+          phone: business.phone || "",
+          address: business.address || {
+            street: "",
+            city: "",
+            state: "",
+            zipCode: "",
+            country: "",
+          },
+          settings: business.settings || {
+            currency: "KES",
+            quotationPrefix: "QT",
+          },
+        });
+
+        // Set logo if exists
         if (business.logo) {
           setLogo(business.logo);
-        } else {
-          setLogo(null);
         }
-        // Reset logo change tracking
-        setLogoChanged(false);
-        setLogoAction(null);
-      } else {
-        toast.error(
-          response.data.message || "Failed to fetch business details"
-        );
       }
     } catch (error) {
-      console.error("Error fetching business details:", error);
-      toast.error("Failed to fetch business details");
+      toast.error("Failed to fetch business settings");
+      console.error(error);
     } finally {
       setIsLoading(false);
     }
   };
 
   const handleLogoChange = (newLogo) => {
-    if (newLogo === null) {
-      // User wants to remove logo
-      setLogo(null);
-      setLogoChanged(true);
-      setLogoAction("remove");
-    } else if (newLogo instanceof File) {
-      // User uploaded a new logo
-      setLogo(newLogo);
-      setLogoChanged(true);
-      setLogoAction("add");
-    }
+    setLogo(newLogo);
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setIsLoading(true);
+    setIsSaving(true);
 
     try {
-      // First update the business info
-      console.log("Updating business info:", formData);
-      const infoResponse = await api.put("/business/settings", formData);
+      // First update business info
+      const response = await api.put("/business/settings", formData);
 
-      if (!infoResponse.data.success) {
-        throw new Error(
-          infoResponse.data.message || "Failed to update business info"
-        );
-      }
-
-      // Handle logo changes if needed
-      if (logoChanged) {
-        setIsLogoLoading(true);
-
-        if (logoAction === "add" && logo instanceof File) {
-          // Upload new logo
+      if (response.data.success) {
+        // Handle logo separately if it's a file
+        if (logo instanceof File) {
           const logoForm = new FormData();
           logoForm.append("logo", logo);
 
-          console.log("Uploading new logo");
-          const logoResponse = await api.put(
-            "/business/settings/logo",
-            logoForm,
-            {
-              headers: {
-                "Content-Type": "multipart/form-data",
-              },
-            }
-          );
-
-          if (!logoResponse.data.success) {
-            throw new Error(
-              logoResponse.data.message || "Failed to update logo"
-            );
-          }
-        } else if (logoAction === "remove") {
-          // Remove logo
-          console.log("Removing logo");
-          const deleteResponse = await api.delete("/business/settings/logo");
-
-          if (!deleteResponse.data.success) {
-            throw new Error(
-              deleteResponse.data.message || "Failed to remove logo"
-            );
-          }
+          await api.put("/business/settings/logo", logoForm, {
+            headers: { "Content-Type": "multipart/form-data" },
+          });
+        } else if (logo === null) {
+          // User wants to remove the logo
+          await api.delete("/business/settings/logo");
         }
 
-        setIsLogoLoading(false);
+        toast.success("Business settings updated successfully");
+        fetchBusinessData(); // Refresh data
       }
-
-      toast.success("Business settings updated successfully");
-      // Refresh data to get updated information including logo URLs
-      fetchBusinessDetails();
     } catch (error) {
-      console.error("Error updating business settings:", error);
-
-      // More detailed error logging
-      if (error.response) {
-        console.error("Response status:", error.response.status);
-        console.error("Response data:", error.response.data);
-      }
-
-      toast.error(
-        error.response?.data?.message ||
-          error.message ||
-          "Failed to update settings"
-      );
+      toast.error("Failed to update business settings");
+      console.error(error);
     } finally {
-      setIsLoading(false);
-      setIsLogoLoading(false);
+      setIsSaving(false);
     }
   };
 
+  if (isLoading) {
+    return <div className="text-center p-10">Loading...</div>;
+  }
+
   return (
-    <div className="space-y-6 p-4 bg-white dark:bg-gray-800 rounded-lg shadow">
-      <div>
-        <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
-          Business Settings
-        </h2>
-        <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
-          Update your business information and branding
-        </p>
-      </div>
+    <div className="bg-white dark:bg-gray-800 shadow-md rounded-lg p-6">
+      <h2 className="text-xl font-semibold mb-6">Business Settings</h2>
 
       <form onSubmit={handleSubmit} className="space-y-6">
-        {/* Logo Upload Section */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+        {/* Logo Upload */}
+        <div className="mb-6">
+          <label className="block text-sm font-medium mb-2">
             Business Logo
           </label>
           <LogoUploader currentLogo={logo} onChange={handleLogoChange} />
-          {isLogoLoading && (
-            <p className="mt-2 text-sm text-blue-600 dark:text-blue-400">
-              Updating logo...
-            </p>
-          )}
         </div>
 
-        {/* Business Information */}
-        <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+        {/* Business Info */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+            <label className="block text-sm font-medium mb-2">
               Business Name
             </label>
             <input
               type="text"
-              value={formData.name || ""}
+              value={formData.name}
               onChange={(e) =>
                 setFormData({ ...formData, name: e.target.value })
               }
-              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 
-                       dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 
-                       focus:ring-blue-500 sm:text-sm transition-colors"
+              className="w-full p-2 border rounded-md"
               required
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-              Email
-            </label>
+            <label className="block text-sm font-medium mb-2">Email</label>
             <input
               type="email"
-              value={formData.email || ""}
+              value={formData.email}
               onChange={(e) =>
                 setFormData({ ...formData, email: e.target.value })
               }
-              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 
-                       dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 
-                       focus:ring-blue-500 sm:text-sm transition-colors"
+              className="w-full p-2 border rounded-md"
               required
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-              Phone
-            </label>
+            <label className="block text-sm font-medium mb-2">Phone</label>
             <input
               type="tel"
-              value={formData.phone || ""}
+              value={formData.phone}
               onChange={(e) =>
                 setFormData({ ...formData, phone: e.target.value })
               }
-              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 
-                       dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 
-                       focus:ring-blue-500 sm:text-sm transition-colors"
+              className="w-full p-2 border rounded-md"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-              Currency
-            </label>
+            <label className="block text-sm font-medium mb-2">Currency</label>
             <select
-              value={formData.settings?.currency || "KES"}
+              value={formData.settings.currency}
               onChange={(e) =>
                 setFormData({
                   ...formData,
                   settings: { ...formData.settings, currency: e.target.value },
                 })
               }
-              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 
-                       dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 
-                       focus:ring-blue-500 sm:text-sm transition-colors"
+              className="w-full p-2 border rounded-md"
             >
               <option value="KES">KES - Kenyan Shilling</option>
               <option value="USD">USD - US Dollar</option>
@@ -256,104 +183,88 @@ const BusinessSettings = () => {
           </div>
         </div>
 
-        {/* Address Information */}
-        <div>
-          <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4">
-            Business Address
-          </h3>
-          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
-            <div className="sm:col-span-2">
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+        {/* Address Fields */}
+        <div className="mt-6">
+          <h3 className="text-lg font-medium mb-4">Address Information</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="col-span-full">
+              <label className="block text-sm font-medium mb-2">
                 Street Address
               </label>
               <input
                 type="text"
-                value={formData.address?.street || ""}
+                value={formData.address.street}
                 onChange={(e) =>
                   setFormData({
                     ...formData,
                     address: { ...formData.address, street: e.target.value },
                   })
                 }
-                className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 
-                         dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 
-                         focus:ring-blue-500 sm:text-sm transition-colors"
+                className="w-full p-2 border rounded-md"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                City
-              </label>
+              <label className="block text-sm font-medium mb-2">City</label>
               <input
                 type="text"
-                value={formData.address?.city || ""}
+                value={formData.address.city}
                 onChange={(e) =>
                   setFormData({
                     ...formData,
                     address: { ...formData.address, city: e.target.value },
                   })
                 }
-                className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 
-                         dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 
-                         focus:ring-blue-500 sm:text-sm transition-colors"
+                className="w-full p-2 border rounded-md"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              <label className="block text-sm font-medium mb-2">
                 State/Province
               </label>
               <input
                 type="text"
-                value={formData.address?.state || ""}
+                value={formData.address.state}
                 onChange={(e) =>
                   setFormData({
                     ...formData,
                     address: { ...formData.address, state: e.target.value },
                   })
                 }
-                className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 
-                         dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 
-                         focus:ring-blue-500 sm:text-sm transition-colors"
+                className="w-full p-2 border rounded-md"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              <label className="block text-sm font-medium mb-2">
                 ZIP/Postal Code
               </label>
               <input
                 type="text"
-                value={formData.address?.zipCode || ""}
+                value={formData.address.zipCode}
                 onChange={(e) =>
                   setFormData({
                     ...formData,
                     address: { ...formData.address, zipCode: e.target.value },
                   })
                 }
-                className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 
-                         dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 
-                         focus:ring-blue-500 sm:text-sm transition-colors"
+                className="w-full p-2 border rounded-md"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                Country
-              </label>
+              <label className="block text-sm font-medium mb-2">Country</label>
               <input
                 type="text"
-                value={formData.address?.country || ""}
+                value={formData.address.country}
                 onChange={(e) =>
                   setFormData({
                     ...formData,
                     address: { ...formData.address, country: e.target.value },
                   })
                 }
-                className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 
-                         dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 
-                         focus:ring-blue-500 sm:text-sm transition-colors"
+                className="w-full p-2 border rounded-md"
               />
             </div>
           </div>
@@ -363,14 +274,10 @@ const BusinessSettings = () => {
         <div className="flex justify-end">
           <button
             type="submit"
-            disabled={isLoading || isLogoLoading}
-            className="inline-flex justify-center py-2 px-4 border border-transparent 
-                     shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 
-                     hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 
-                     focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed
-                     transition-colors"
+            disabled={isSaving}
+            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
           >
-            {isLoading || isLogoLoading ? "Saving..." : "Save Changes"}
+            {isSaving ? "Saving..." : "Save Changes"}
           </button>
         </div>
       </form>

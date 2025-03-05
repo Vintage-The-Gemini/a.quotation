@@ -148,9 +148,7 @@ const quotationController = {
     }
   },
 
-  // In backend/src/controllers/quotation.controller.js
-  // Update the generatePDF method
-
+  // Generate PDF
   generatePDF: async (req, res) => {
     try {
       console.log(
@@ -278,16 +276,15 @@ const quotationController = {
         fileStream.pipe(res);
 
         // Clean up after sending
-        fileStream.on("end", async () => {
+        fileStream.on("end", () => {
           try {
             // Wait a moment to ensure file is fully delivered before deleting
-            setTimeout(async () => {
-              try {
-                await fs.unlink(pdfPath);
-                console.log("Temporary PDF file cleaned up:", pdfPath);
-              } catch (unlinkError) {
-                console.error("Error cleaning up temporary file:", unlinkError);
-              }
+            setTimeout(() => {
+              fs.unlink(pdfPath, (err) => {
+                if (err)
+                  console.error("Error cleaning up temporary file:", err);
+                else console.log("Temporary PDF file cleaned up:", pdfPath);
+              });
             }, 1000);
           } catch (cleanupError) {
             console.error("Error in cleanup:", cleanupError);
@@ -310,6 +307,7 @@ const quotationController = {
       });
     }
   },
+
   // Send email
   sendEmail: async (req, res) => {
     try {

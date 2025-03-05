@@ -2,7 +2,7 @@
 import { useEffect } from "react";
 import { Routes, Route } from "react-router-dom";
 import { useDispatch } from "react-redux";
-import { Toaster } from "react-hot-toast";
+import { Toaster, toast } from "react-hot-toast"; // Added toast import
 import authService from "./services/auth.service";
 import { setCredentials } from "./store/slices/authSlice";
 import { ThemeProvider } from "./context/ThemeContext";
@@ -72,6 +72,7 @@ function App() {
 
           // Notify the user only for connection issues
           if (error.message && error.message.includes("Network Error")) {
+            // Using toast correctly now
             toast.error(
               "Network connection issue. Please check your connection."
             );

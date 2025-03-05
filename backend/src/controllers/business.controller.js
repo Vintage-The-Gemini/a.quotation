@@ -32,10 +32,7 @@ exports.getBusinessSettings = async (req, res) => {
 // Update business settings (basic information only, no file handling)
 exports.updateBusinessSettings = async (req, res) => {
   try {
-    console.log("Updating business settings:", {
-      userId: req.user.id,
-      businessId: req.user.businessId,
-    });
+    console.log("Updating business settings with data:", req.body);
 
     const business = await Business.findById(req.user.businessId);
     if (!business) {
@@ -48,10 +45,23 @@ exports.updateBusinessSettings = async (req, res) => {
     // Ensure we're not overwriting the logo
     const { logo, ...businessData } = req.body;
 
-    console.log("Updating with business data:", {
-      name: businessData.name,
-      email: businessData.email,
-    });
+    // Make sure required fields are present
+    if (!businessData.name) {
+      return res.status(400).json({
+        success: false,
+        message: "Business name is required",
+      });
+    }
+
+    // Make sure settings object exists
+    if (!businessData.settings) {
+      businessData.settings = business.settings || {};
+    }
+
+    // Make sure address object exists
+    if (!businessData.address) {
+      businessData.address = business.address || {};
+    }
 
     // Update business with new data (excluding logo)
     const updatedBusiness = await Business.findByIdAndUpdate(

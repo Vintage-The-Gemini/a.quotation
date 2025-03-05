@@ -95,8 +95,13 @@ class PDFService {
 
     files.forEach((file) => {
       try {
-        fs.unlinkSync(file);
-        console.log(`Temporary file removed: ${file}`);
+        fs.unlink(file, (err) => {
+          if (err) {
+            console.error(`Error removing temporary file ${file}:`, err);
+          } else {
+            console.log(`Temporary file removed: ${file}`);
+          }
+        });
       } catch (err) {
         console.error(`Error removing temporary file ${file}:`, err);
       }
@@ -108,56 +113,79 @@ class PDFService {
    * PDFKit requires either a file path or a Buffer
    */
   async _prepareLogo(logo, tempFiles) {
-    if (!logo || !logo.url) return null;
+    if (!logo) return null;
 
     try {
-      let logoPath;
+      let logoPath = null;
 
-      // Handle Cloudinary URLs
-      if (logo.isCloudinary) {
-        // Download from Cloudinary to a temp file
-        const tempLogoPath = path.join(
-          process.cwd(),
-          "temp",
-          `logo-${Date.now()}.png`
-        );
-        await this._downloadFile(logo.url, tempLogoPath);
-        logoPath = tempLogoPath;
-        tempFiles.push(tempLogoPath); // Add to cleanup list
-      } else {
-        // Local file - ensure absolute path
-        logoPath = path.isAbsolute(logo.url)
-          ? logo.url
-          : path.join(process.cwd(), logo.url);
+      console.log("Preparing logo for PDF:", logo);
 
-        // Verify the file exists
-        await fs.access(logoPath);
+      // Handle legacy string format (just filename)
+      if (typeof logo === "string") {
+        logoPath = path.join(process.cwd(), "uploads", "logos", logo);
+        console.log("Legacy logo path:", logoPath);
+      }
+      // Handle object format
+      else if (logo.url) {
+        // Handle Cloudinary URLs
+        if (logo.isCloudinary) {
+          // Download from Cloudinary to a temp file
+          const tempLogoPath = path.join(
+            process.cwd(),
+            "temp",
+            `logo-${Date.now()}.png`
+          );
+          await this._downloadFile(logo.url, tempLogoPath);
+          logoPath = tempLogoPath;
+          tempFiles.push(tempLogoPath); // Add to cleanup list
+          console.log("Downloaded Cloudinary logo to:", logoPath);
+        } else {
+          // Local file - ensure absolute path
+          logoPath = path.isAbsolute(logo.url)
+            ? logo.url
+            : path.join(process.cwd(), logo.url);
+          console.log("Local logo path:", logoPath);
+        }
       }
 
-      return logoPath;
+      // Verify the file exists before returning
+      if (logoPath) {
+        try {
+          await fs.access(logoPath);
+          return logoPath;
+        } catch (accessError) {
+          console.error("Logo file doesn't exist:", accessError);
+          return null;
+        }
+      }
+      return null;
     } catch (error) {
       console.error("Error preparing logo:", error);
       return null;
     }
   }
 
-  /**
-   * Download a file from a URL to local path
-   */
+  // backend/src/services/pdf.service.js (continued)
   async _downloadFile(url, outputPath) {
-    const response = await axios({
-      url,
-      method: "GET",
-      responseType: "stream",
-    });
+    try {
+      console.log(`Downloading file from ${url} to ${outputPath}`);
+      const response = await axios({
+        url,
+        method: "GET",
+        responseType: "stream",
+      });
 
-    const writer = fs.createWriteStream(outputPath);
+      const writer = fs.createWriteStream(outputPath);
 
-    return new Promise((resolve, reject) => {
-      response.data.pipe(writer);
-      writer.on("finish", resolve);
-      writer.on("error", reject);
-    });
+      return new Promise((resolve, reject) => {
+        response.data.pipe(writer);
+        writer.on("finish", resolve);
+        writer.on("error", reject);
+      });
+    } catch (error) {
+      console.error("Error downloading file:", error);
+      throw error;
+    }
   }
 
   /**

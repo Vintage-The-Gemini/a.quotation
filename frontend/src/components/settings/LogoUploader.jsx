@@ -12,6 +12,8 @@ const LogoUploader = ({ currentLogo, onChange }) => {
     } else if (currentLogo && typeof currentLogo === "string") {
       // For backward compatibility
       setPreviewUrl(`/uploads/logos/${currentLogo}`);
+    } else {
+      setPreviewUrl("");
     }
   }, [currentLogo]);
 

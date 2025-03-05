@@ -5,6 +5,7 @@ import { toast } from "react-hot-toast";
 import api from "../../services/api";
 import { useTheme } from "../../context/ThemeContext";
 import LogoUploader from "../../components/settings/LogoUploader";
+import { mockBusiness, mockApiResponse } from "../../utils/mockData";
 
 const Settings = () => {
   const dispatch = useDispatch();
@@ -13,6 +14,7 @@ const Settings = () => {
   const [activeTab, setActiveTab] = useState("business");
   const [isLoading, setIsLoading] = useState(false);
   const [logo, setLogo] = useState(null);
+  const [useDevMode, setUseDevMode] = useState(false);
   const [businessSettings, setBusinessSettings] = useState({
     name: "",
     email: "",
@@ -24,13 +26,11 @@ const Settings = () => {
       zipCode: "",
       country: "",
     },
-    quotationPrefix: "QT",
-    defaultTax: {
-      enabled: true,
-      rate: 16,
-      name: "VAT",
+    settings: {
+      theme: "default",
+      quotationPrefix: "QT",
+      currency: "KES",
     },
-    currency: "KES",
   });
 
   // Fetch business settings on component mount
@@ -43,22 +43,79 @@ const Settings = () => {
   const fetchBusinessSettings = async () => {
     try {
       setIsLoading(true);
+      // Try to fetch from API
       const response = await api.get("/business/settings");
       if (response.data.success) {
         const business = response.data.data;
-        setBusinessSettings(business);
+        // Set the actual business data
+        setBusinessSettings({
+          name: business.name || "",
+          email: business.email || "",
+          phone: business.phone || "",
+          address: business.address || {
+            street: "",
+            city: "",
+            state: "",
+            zipCode: "",
+            country: "",
+          },
+          settings: business.settings || {
+            theme: "default",
+            quotationPrefix: "QT",
+            currency: "KES",
+          },
+        });
+
         // Handle logo data in the state
         if (business.logo) {
           setLogo(business.logo);
+        } else {
+          setLogo(null);
         }
+
+        // We're in normal mode
+        setUseDevMode(false);
       } else {
-        toast.error(
+        throw new Error(
           response.data.message || "Failed to fetch business details"
         );
       }
     } catch (error) {
       console.error("Error fetching business settings:", error);
-      toast.error("Failed to fetch business settings");
+      // Only show one toast message
+      if (!window.settingsErrorShown) {
+        toast.error("Failed to fetch business settings. Using demo data.");
+        window.settingsErrorShown = true;
+        setTimeout(() => {
+          window.settingsErrorShown = false;
+        }, 5000);
+      }
+
+      // Set mock data for development
+      setBusinessSettings({
+        name: mockBusiness.name,
+        email: mockBusiness.email,
+        phone: mockBusiness.phone,
+        address: mockBusiness.address || {
+          street: "",
+          city: "",
+          state: "",
+          zipCode: "",
+          country: "",
+        },
+        settings: mockBusiness.settings || {
+          theme: "default",
+          quotationPrefix: "QT",
+          currency: "KES",
+        },
+      });
+
+      if (mockBusiness.logo) {
+        setLogo(mockBusiness.logo);
+      }
+
+      // We're in dev mode
+      setUseDevMode(true);
     } finally {
       setIsLoading(false);
     }
@@ -73,31 +130,49 @@ const Settings = () => {
     setIsLoading(true);
 
     try {
-      const submitData = new FormData();
+      // Prepare the business data
+      const businessData = {
+        name: businessSettings.name,
+        email: businessSettings.email,
+        phone: businessSettings.phone,
+        address: businessSettings.address,
+        settings: businessSettings.settings,
+      };
 
-      // Add logo if it's a file
-      if (logo instanceof File) {
-        submitData.append("logo", logo);
-      } else if (logo === null) {
-        // If logo is explicitly set to null, we want to remove it
-        submitData.append("removeLogo", "true");
-      }
+      console.log("Saving business data:", businessData);
 
-      // Add the rest of the form data
-      submitData.append("data", JSON.stringify(businessSettings));
-
-      const response = await api.put("/business/settings", submitData, {
-        headers: {
-          "Content-Type": "multipart/form-data",
-        },
-      });
-
-      if (response.data.success) {
-        toast.success("Business settings updated successfully");
-        // Refresh data
-        fetchBusinessSettings();
+      if (useDevMode) {
+        // Mock API response in dev mode
+        await mockApiResponse(businessData, 800);
+        toast.success("Demo mode: Business settings updated successfully");
+        // No need to refresh data in demo mode
       } else {
-        throw new Error(response.data.message || "Failed to update settings");
+        // First update the business information
+        const response = await api.put("/business/settings", businessData);
+
+        if (response.data.success) {
+          // Handle logo separately based on what changed
+          if (logo instanceof File) {
+            // User uploaded a new logo
+            const logoForm = new FormData();
+            logoForm.append("logo", logo);
+
+            await api.put("/business/settings/logo", logoForm, {
+              headers: {
+                "Content-Type": "multipart/form-data",
+              },
+            });
+          } else if (logo === null) {
+            // User wants to remove the logo
+            await api.delete("/business/settings/logo");
+          }
+
+          toast.success("Business settings updated successfully");
+          // Refresh data
+          fetchBusinessSettings();
+        } else {
+          throw new Error(response.data.message || "Failed to update settings");
+        }
       }
     } catch (error) {
       console.error("Error updating business settings:", error);
@@ -119,6 +194,9 @@ const Settings = () => {
         </h1>
         <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
           Manage your business settings and preferences
+          {useDevMode && (
+            <span className="text-amber-500 ml-2">(Demo Mode)</span>
+          )}
         </p>
       </div>
 
@@ -187,7 +265,7 @@ const Settings = () => {
               </p>
 
               <form onSubmit={handleSaveBusinessSettings} className="space-y-6">
-                {/* Logo Upload - Add this section above the Business Name */}
+                {/* Logo Upload Section */}
                 <div className="mb-6">
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                     Business Logo
@@ -213,6 +291,7 @@ const Settings = () => {
                         }))
                       }
                       className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm transition-colors"
+                      required
                     />
                   </div>
 
@@ -230,6 +309,7 @@ const Settings = () => {
                         }))
                       }
                       className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm transition-colors"
+                      required
                     />
                   </div>
 
@@ -255,11 +335,14 @@ const Settings = () => {
                       Currency
                     </label>
                     <select
-                      value={businessSettings.currency}
+                      value={businessSettings.settings?.currency || "KES"}
                       onChange={(e) =>
                         setBusinessSettings((prev) => ({
                           ...prev,
-                          currency: e.target.value,
+                          settings: {
+                            ...prev.settings,
+                            currency: e.target.value,
+                          },
                         }))
                       }
                       className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm transition-colors"
@@ -450,11 +533,14 @@ const Settings = () => {
                   </label>
                   <input
                     type="text"
-                    value={businessSettings.quotationPrefix || "QT"}
+                    value={businessSettings.settings?.quotationPrefix || "QT"}
                     onChange={(e) =>
                       setBusinessSettings((prev) => ({
                         ...prev,
-                        quotationPrefix: e.target.value,
+                        settings: {
+                          ...prev.settings,
+                          quotationPrefix: e.target.value,
+                        },
                       }))
                     }
                     className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm transition-colors"
@@ -494,13 +580,18 @@ const Settings = () => {
                 <div className="flex items-center">
                   <input
                     type="checkbox"
-                    checked={businessSettings.defaultTax?.enabled}
+                    checked={
+                      businessSettings.settings?.defaultTax?.enabled || false
+                    }
                     onChange={(e) =>
                       setBusinessSettings((prev) => ({
                         ...prev,
-                        defaultTax: {
-                          ...prev.defaultTax,
-                          enabled: e.target.checked,
+                        settings: {
+                          ...prev.settings,
+                          defaultTax: {
+                            ...(prev.settings?.defaultTax || {}),
+                            enabled: e.target.checked,
+                          },
                         },
                       }))
                     }
@@ -511,7 +602,7 @@ const Settings = () => {
                   </label>
                 </div>
 
-                {businessSettings.defaultTax?.enabled && (
+                {businessSettings.settings?.defaultTax?.enabled && (
                   <div className="space-y-4 mt-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
@@ -519,13 +610,18 @@ const Settings = () => {
                       </label>
                       <input
                         type="text"
-                        value={businessSettings.defaultTax?.name || "VAT"}
+                        value={
+                          businessSettings.settings?.defaultTax?.name || "VAT"
+                        }
                         onChange={(e) =>
                           setBusinessSettings((prev) => ({
                             ...prev,
-                            defaultTax: {
-                              ...prev.defaultTax,
-                              name: e.target.value,
+                            settings: {
+                              ...prev.settings,
+                              defaultTax: {
+                                ...(prev.settings?.defaultTax || {}),
+                                name: e.target.value,
+                              },
                             },
                           }))
                         }
@@ -540,13 +636,18 @@ const Settings = () => {
                       </label>
                       <input
                         type="number"
-                        value={businessSettings.defaultTax?.rate || 16}
+                        value={
+                          businessSettings.settings?.defaultTax?.rate || 16
+                        }
                         onChange={(e) =>
                           setBusinessSettings((prev) => ({
                             ...prev,
-                            defaultTax: {
-                              ...prev.defaultTax,
-                              rate: parseFloat(e.target.value),
+                            settings: {
+                              ...prev.settings,
+                              defaultTax: {
+                                ...(prev.settings?.defaultTax || {}),
+                                rate: parseFloat(e.target.value),
+                              },
                             },
                           }))
                         }

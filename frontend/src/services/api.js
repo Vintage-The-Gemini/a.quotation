@@ -3,8 +3,8 @@ import axios from "axios";
 import { toast } from "react-hot-toast";
 
 // Define the baseURL without relying on process.env
-// You can change this to match your backend URL
-const baseURL = "http://localhost:5000/api";
+// Using relative URL to avoid cross-origin issues
+const baseURL = "/api";
 
 const api = axios.create({
   baseURL,
@@ -32,6 +32,21 @@ api.interceptors.request.use(
 api.interceptors.response.use(
   (response) => response,
   (error) => {
+    // Handle network errors gracefully
+    if (error.code === "ERR_NETWORK") {
+      console.error("Network error, server might be down:", error);
+      // Only show one toast for network errors
+      if (!window.networkErrorShown) {
+        toast.error("Network error: Server might be down or not running.");
+        window.networkErrorShown = true;
+        // Reset after 5 seconds to prevent too many toasts
+        setTimeout(() => {
+          window.networkErrorShown = false;
+        }, 5000);
+      }
+      return Promise.reject(error);
+    }
+
     const message =
       error.response?.data?.message || error.message || "Server error";
 
