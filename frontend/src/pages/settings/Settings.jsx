@@ -13,6 +13,7 @@ const Settings = () => {
   const user = useSelector((state) => state.auth.user);
   const [activeTab, setActiveTab] = useState("business");
   const [isLoading, setIsLoading] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [logo, setLogo] = useState(null);
   const [useDevMode, setUseDevMode] = useState(false);
   const [businessSettings, setBusinessSettings] = useState({
@@ -127,7 +128,7 @@ const Settings = () => {
 
   const handleSaveBusinessSettings = async (e) => {
     e.preventDefault();
-    setIsLoading(true);
+    setIsSaving(true);
 
     try {
       // Prepare the business data
@@ -151,23 +152,48 @@ const Settings = () => {
         const response = await api.put("/business/settings", businessData);
 
         if (response.data.success) {
+          let logoUpdated = false;
+
           // Handle logo separately based on what changed
           if (logo instanceof File) {
             // User uploaded a new logo
             const logoForm = new FormData();
             logoForm.append("logo", logo);
 
-            await api.put("/business/settings/logo", logoForm, {
-              headers: {
-                "Content-Type": "multipart/form-data",
-              },
-            });
-          } else if (logo === null) {
+            try {
+              await api.put("/business/settings/logo", logoForm, {
+                headers: {
+                  "Content-Type": "multipart/form-data",
+                },
+              });
+              logoUpdated = true;
+            } catch (logoError) {
+              console.error("Error updating logo:", logoError);
+              toast.error(
+                "Failed to update logo, but other settings were saved"
+              );
+            }
+          } else if (
+            logo === null &&
+            typeof businessSettings.logo !== "undefined"
+          ) {
             // User wants to remove the logo
-            await api.delete("/business/settings/logo");
+            try {
+              await api.delete("/business/settings/logo");
+              logoUpdated = true;
+            } catch (logoError) {
+              console.error("Error removing logo:", logoError);
+              toast.error(
+                "Failed to remove logo, but other settings were saved"
+              );
+            }
           }
 
-          toast.success("Business settings updated successfully");
+          toast.success(
+            `Business settings updated successfully${
+              logoUpdated ? " with logo changes" : ""
+            }`
+          );
           // Refresh data
           fetchBusinessSettings();
         } else {
@@ -182,7 +208,7 @@ const Settings = () => {
           "Failed to update settings"
       );
     } finally {
-      setIsLoading(false);
+      setIsSaving(false);
     }
   };
 
@@ -445,10 +471,10 @@ const Settings = () => {
                 <div className="flex justify-end pt-4">
                   <button
                     type="submit"
-                    disabled={isLoading}
+                    disabled={isLoading || isSaving}
                     className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 dark:focus:ring-offset-gray-800 disabled:opacity-50 transition-colors"
                   >
-                    {isLoading ? "Saving..." : "Save Changes"}
+                    {isSaving ? "Saving..." : "Save Changes"}
                   </button>
                 </div>
               </form>
@@ -556,10 +582,10 @@ const Settings = () => {
                   <button
                     type="button"
                     onClick={handleSaveBusinessSettings}
-                    disabled={isLoading}
+                    disabled={isLoading || isSaving}
                     className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 dark:focus:ring-offset-gray-800 disabled:opacity-50 transition-colors"
                   >
-                    {isLoading ? "Saving..." : "Save Changes"}
+                    {isSaving ? "Saving..." : "Save Changes"}
                   </button>
                 </div>
               </form>
@@ -664,10 +690,10 @@ const Settings = () => {
                   <button
                     type="button"
                     onClick={handleSaveBusinessSettings}
-                    disabled={isLoading}
+                    disabled={isLoading || isSaving}
                     className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 dark:focus:ring-offset-gray-800 disabled:opacity-50 transition-colors"
                   >
-                    {isLoading ? "Saving..." : "Save Tax Settings"}
+                    {isSaving ? "Saving..." : "Save Tax Settings"}
                   </button>
                 </div>
               </div>

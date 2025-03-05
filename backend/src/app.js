@@ -40,14 +40,31 @@ connectDB();
 
 const app = express();
 
-// Security Middleware
+// Enhanced CORS configuration
+const corsOptions = {
+  origin: [
+    "http://localhost:5173",
+    "http://localhost:3000",
+    "http://127.0.0.1:5173",
+  ], // Add your frontend URLs
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+  credentials: true,
+  exposedHeaders: ["Content-Disposition"],
+};
+
+// Apply CORS with options
+app.use(cors(corsOptions));
+
+// Security Middleware with relaxed settings for local development
 app.use(
   helmet({
     contentSecurityPolicy: false, // Needed for displaying PDF in browser
     crossOriginResourcePolicy: { policy: "cross-origin" }, // Allow loading resources
+    crossOriginOpenerPolicy: false,
+    crossOriginEmbedderPolicy: false,
   })
 );
-app.use(cors());
 
 // Request logging in development
 if (process.env.NODE_ENV === "development") {
@@ -74,9 +91,59 @@ app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/templates", templateRoutes);
 app.use("/api/business", businessRoutes);
 
-// Serve static files
-app.use("/uploads", express.static(path.join(__dirname, "..", "uploads")));
-app.use("/temp", express.static(path.join(__dirname, "..", "temp")));
+// Serve static files - IMPORTANT FOR LOGO DISPLAY
+// Use absolute paths and set proper headers
+app.use(
+  "/uploads",
+  express.static(path.join(__dirname, "..", "uploads"), {
+    setHeaders: (res) => {
+      res.set("Cross-Origin-Resource-Policy", "cross-origin");
+      res.set("Access-Control-Allow-Origin", "*");
+    },
+  })
+);
+
+app.use(
+  "/temp",
+  express.static(path.join(__dirname, "..", "temp"), {
+    setHeaders: (res) => {
+      res.set("Cross-Origin-Resource-Policy", "cross-origin");
+      res.set("Access-Control-Allow-Origin", "*");
+    },
+  })
+);
+
+// Debug endpoint to check paths
+app.get("/api/debug/paths", (req, res) => {
+  res.json({
+    uploadDir: path.join(__dirname, "..", "uploads"),
+    logosDir: path.join(__dirname, "..", "uploads", "logos"),
+    exists: {
+      uploadsDir: fs.existsSync(path.join(__dirname, "..", "uploads")),
+      logosDir: fs.existsSync(path.join(__dirname, "..", "uploads", "logos")),
+    },
+    env: process.env.NODE_ENV,
+    cwd: process.cwd(),
+  });
+});
+
+// Direct access to logo endpoint for testing
+app.get("/test-logo/:filename", (req, res) => {
+  const filePath = path.join(
+    __dirname,
+    "..",
+    "uploads",
+    "logos",
+    req.params.filename
+  );
+  console.log("Testing logo access at:", filePath);
+
+  if (fs.existsSync(filePath)) {
+    res.sendFile(filePath);
+  } else {
+    res.status(404).send("Logo not found");
+  }
+});
 
 // Basic route for testing
 app.get("/api/status", (req, res) => {
@@ -115,6 +182,8 @@ const server = app.listen(PORT, () => {
       process.env.USE_CLOUDINARY === "true" ? "Cloudinary" : "Local storage"
     }`
   );
+  console.log(`Uploads directory: ${path.join(__dirname, "..", "uploads")}`);
+  console.log(`Static files URL: http://localhost:${PORT}/uploads`);
 });
 
 // Handle unhandled promise rejections

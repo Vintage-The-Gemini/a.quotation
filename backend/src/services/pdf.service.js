@@ -108,6 +108,8 @@ class PDFService {
     });
   }
 
+  // backend/src/services/pdf.service.js (partial update - _prepareLogo method)
+
   /**
    * Prepare the logo file for PDFKit
    * PDFKit requires either a file path or a Buffer
@@ -118,15 +120,36 @@ class PDFService {
     try {
       let logoPath = null;
 
-      console.log("Preparing logo for PDF:", logo);
+      console.log("Preparing logo for PDF:", JSON.stringify(logo, null, 2));
+
+      // Helper function to normalize paths
+      const normalizePath = (path) => {
+        if (!path) return path;
+        return path.replace(/\\/g, "/");
+      };
 
       // Handle legacy string format (just filename)
       if (typeof logo === "string") {
-        logoPath = path.join(process.cwd(), "uploads", "logos", logo);
+        const normalizedLogo = normalizePath(logo);
+        if (normalizedLogo.includes("/")) {
+          // It's a path
+          logoPath = path.join(process.cwd(), normalizedLogo);
+        } else {
+          // It's just a filename
+          logoPath = path.join(
+            process.cwd(),
+            "uploads",
+            "logos",
+            normalizedLogo
+          );
+        }
         console.log("Legacy logo path:", logoPath);
       }
       // Handle object format
       else if (logo.url) {
+        // Normalize the URL path
+        const normalizedUrl = normalizePath(logo.url);
+
         // Handle Cloudinary URLs
         if (logo.isCloudinary) {
           // Download from Cloudinary to a temp file
@@ -140,11 +163,39 @@ class PDFService {
           tempFiles.push(tempLogoPath); // Add to cleanup list
           console.log("Downloaded Cloudinary logo to:", logoPath);
         } else {
-          // Local file - ensure absolute path
-          logoPath = path.isAbsolute(logo.url)
-            ? logo.url
-            : path.join(process.cwd(), logo.url);
-          console.log("Local logo path:", logoPath);
+          // Local file handling with proper path construction
+          if (normalizedUrl.startsWith("/")) {
+            // Absolute path from root
+            logoPath = path.join(process.cwd(), normalizedUrl.substring(1));
+          } else if (normalizedUrl.includes("/")) {
+            // Relative path with directories
+            logoPath = path.join(process.cwd(), normalizedUrl);
+          } else {
+            // Just a filename
+            logoPath = path.join(
+              process.cwd(),
+              "uploads",
+              "logos",
+              normalizedUrl
+            );
+          }
+          console.log("Local logo path (constructed):", logoPath);
+
+          // As a fallback, also check if file exists in the logos directory directly
+          if (!fs.existsSync(logoPath)) {
+            const fallbackPath = path.join(
+              process.cwd(),
+              "uploads",
+              "logos",
+              path.basename(normalizedUrl)
+            );
+            console.log("Checking fallback path:", fallbackPath);
+
+            if (fs.existsSync(fallbackPath)) {
+              console.log("Using fallback logo path:", fallbackPath);
+              logoPath = fallbackPath;
+            }
+          }
         }
       }
 
@@ -152,10 +203,29 @@ class PDFService {
       if (logoPath) {
         try {
           await fs.access(logoPath);
+          console.log("Logo file verified at:", logoPath);
           return logoPath;
         } catch (accessError) {
           console.error("Logo file doesn't exist:", accessError);
-          return null;
+
+          // Try one last approach - extract just the filename and look for it
+          try {
+            const basename = path.basename(logoPath);
+            const lastResortPath = path.join(
+              process.cwd(),
+              "uploads",
+              "logos",
+              basename
+            );
+
+            console.log("Trying last resort path:", lastResortPath);
+            await fs.access(lastResortPath);
+            console.log("Found logo at last resort path:", lastResortPath);
+            return lastResortPath;
+          } catch (lastResortError) {
+            console.error("Last resort failed:", lastResortError);
+            return null;
+          }
         }
       }
       return null;
