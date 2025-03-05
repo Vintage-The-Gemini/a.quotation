@@ -29,25 +29,13 @@ exports.getBusinessSettings = async (req, res) => {
   }
 };
 
-// Update business settings
+// Update business settings (basic information only, no file handling)
 exports.updateBusinessSettings = async (req, res) => {
   try {
-    // Parse business data
-    let businessData;
-    if (req.body.data) {
-      try {
-        businessData = JSON.parse(req.body.data);
-      } catch (parseError) {
-        console.error("Error parsing JSON data:", parseError);
-        return res.status(400).json({
-          success: false,
-          message: "Invalid JSON data format",
-          error: parseError.message,
-        });
-      }
-    } else {
-      businessData = req.body;
-    }
+    console.log("Updating business settings:", {
+      userId: req.user.id,
+      businessId: req.user.businessId,
+    });
 
     const business = await Business.findById(req.user.businessId);
     if (!business) {
@@ -57,50 +45,18 @@ exports.updateBusinessSettings = async (req, res) => {
       });
     }
 
-    // Handle logo upload
-    let logoData = business.logo;
-    if (req.file) {
-      // Delete old logo if exists
-      if (business.logo && business.logo.url) {
-        try {
-          await storageService.deleteFile(business.logo);
-        } catch (deleteError) {
-          console.error("Error deleting old logo:", deleteError);
-          // Continue anyway - don't fail the update just because of old logo deletion
-        }
-      }
+    // Ensure we're not overwriting the logo
+    const { logo, ...businessData } = req.body;
 
-      // Save new logo
-      try {
-        logoData = await storageService.saveFile(req.file, "logos");
-        console.log("New logo saved:", logoData);
-      } catch (saveError) {
-        console.error("Error saving new logo:", saveError);
-        return res.status(500).json({
-          success: false,
-          message: "Error saving logo file",
-          error: saveError.message,
-        });
-      }
-    } else if (req.body.removeLogo === "true") {
-      // Remove logo if requested
-      if (business.logo && business.logo.url) {
-        try {
-          await storageService.deleteFile(business.logo);
-        } catch (deleteError) {
-          console.error("Error deleting logo on remove:", deleteError);
-        }
-      }
-      logoData = null;
-    }
+    console.log("Updating with business data:", {
+      name: businessData.name,
+      email: businessData.email,
+    });
 
-    // Update business with new data
+    // Update business with new data (excluding logo)
     const updatedBusiness = await Business.findByIdAndUpdate(
       req.user.businessId,
-      {
-        ...businessData,
-        logo: logoData,
-      },
+      businessData,
       { new: true, runValidators: true }
     );
 
@@ -117,6 +73,8 @@ exports.updateBusinessSettings = async (req, res) => {
     });
   }
 };
+
+// Update logo - implemented in routes file as a separate endpoint
 
 // Get business logo
 exports.getBusinessLogo = async (req, res) => {

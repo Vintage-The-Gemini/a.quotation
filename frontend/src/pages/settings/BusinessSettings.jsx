@@ -6,7 +6,10 @@ import LogoUploader from "../../components/settings/LogoUploader";
 
 const BusinessSettings = () => {
   const [isLoading, setIsLoading] = useState(false);
+  const [isLogoLoading, setIsLogoLoading] = useState(false);
   const [logo, setLogo] = useState(null);
+  const [logoChanged, setLogoChanged] = useState(false);
+  const [logoAction, setLogoAction] = useState(null); // 'add', 'remove', or null
   const [formData, setFormData] = useState({
     name: "",
     email: "",
@@ -33,13 +36,20 @@ const BusinessSettings = () => {
     try {
       setIsLoading(true);
       const response = await api.get("/business/settings");
+      console.log("Fetched business details:", response.data);
+
       if (response.data.success) {
         const business = response.data.data;
         setFormData(business);
         // Handle logo data in the state
         if (business.logo) {
           setLogo(business.logo);
+        } else {
+          setLogo(null);
         }
+        // Reset logo change tracking
+        setLogoChanged(false);
+        setLogoAction(null);
       } else {
         toast.error(
           response.data.message || "Failed to fetch business details"
@@ -54,7 +64,17 @@ const BusinessSettings = () => {
   };
 
   const handleLogoChange = (newLogo) => {
-    setLogo(newLogo);
+    if (newLogo === null) {
+      // User wants to remove logo
+      setLogo(null);
+      setLogoChanged(true);
+      setLogoAction("remove");
+    } else if (newLogo instanceof File) {
+      // User uploaded a new logo
+      setLogo(newLogo);
+      setLogoChanged(true);
+      setLogoAction("add");
+    }
   };
 
   const handleSubmit = async (e) => {
@@ -62,34 +82,68 @@ const BusinessSettings = () => {
     setIsLoading(true);
 
     try {
-      const submitData = new FormData();
+      // First update the business info
+      console.log("Updating business info:", formData);
+      const infoResponse = await api.put("/business/settings", formData);
 
-      // Add logo if it's a file
-      if (logo instanceof File) {
-        submitData.append("logo", logo);
-      } else if (logo === null) {
-        // If logo is explicitly set to null, we want to remove it
-        submitData.append("removeLogo", "true");
+      if (!infoResponse.data.success) {
+        throw new Error(
+          infoResponse.data.message || "Failed to update business info"
+        );
       }
 
-      // Add the rest of the form data
-      submitData.append("data", JSON.stringify(formData));
+      // Handle logo changes if needed
+      if (logoChanged) {
+        setIsLogoLoading(true);
 
-      const response = await api.put("/business/settings", submitData, {
-        headers: {
-          "Content-Type": "multipart/form-data",
-        },
-      });
+        if (logoAction === "add" && logo instanceof File) {
+          // Upload new logo
+          const logoForm = new FormData();
+          logoForm.append("logo", logo);
 
-      if (response.data.success) {
-        toast.success("Business settings updated successfully");
-        // Refresh data to get updated logo URLs
-        fetchBusinessDetails();
-      } else {
-        throw new Error(response.data.message || "Failed to update settings");
+          console.log("Uploading new logo");
+          const logoResponse = await api.put(
+            "/business/settings/logo",
+            logoForm,
+            {
+              headers: {
+                "Content-Type": "multipart/form-data",
+              },
+            }
+          );
+
+          if (!logoResponse.data.success) {
+            throw new Error(
+              logoResponse.data.message || "Failed to update logo"
+            );
+          }
+        } else if (logoAction === "remove") {
+          // Remove logo
+          console.log("Removing logo");
+          const deleteResponse = await api.delete("/business/settings/logo");
+
+          if (!deleteResponse.data.success) {
+            throw new Error(
+              deleteResponse.data.message || "Failed to remove logo"
+            );
+          }
+        }
+
+        setIsLogoLoading(false);
       }
+
+      toast.success("Business settings updated successfully");
+      // Refresh data to get updated information including logo URLs
+      fetchBusinessDetails();
     } catch (error) {
       console.error("Error updating business settings:", error);
+
+      // More detailed error logging
+      if (error.response) {
+        console.error("Response status:", error.response.status);
+        console.error("Response data:", error.response.data);
+      }
+
       toast.error(
         error.response?.data?.message ||
           error.message ||
@@ -97,6 +151,7 @@ const BusinessSettings = () => {
       );
     } finally {
       setIsLoading(false);
+      setIsLogoLoading(false);
     }
   };
 
@@ -112,12 +167,17 @@ const BusinessSettings = () => {
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
-        {/* Logo Upload Section - This is where the logo uploader should appear */}
+        {/* Logo Upload Section */}
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
             Business Logo
           </label>
           <LogoUploader currentLogo={logo} onChange={handleLogoChange} />
+          {isLogoLoading && (
+            <p className="mt-2 text-sm text-blue-600 dark:text-blue-400">
+              Updating logo...
+            </p>
+          )}
         </div>
 
         {/* Business Information */}
@@ -128,7 +188,7 @@ const BusinessSettings = () => {
             </label>
             <input
               type="text"
-              value={formData.name}
+              value={formData.name || ""}
               onChange={(e) =>
                 setFormData({ ...formData, name: e.target.value })
               }
@@ -145,7 +205,7 @@ const BusinessSettings = () => {
             </label>
             <input
               type="email"
-              value={formData.email}
+              value={formData.email || ""}
               onChange={(e) =>
                 setFormData({ ...formData, email: e.target.value })
               }
@@ -162,7 +222,7 @@ const BusinessSettings = () => {
             </label>
             <input
               type="tel"
-              value={formData.phone}
+              value={formData.phone || ""}
               onChange={(e) =>
                 setFormData({ ...formData, phone: e.target.value })
               }
@@ -303,14 +363,14 @@ const BusinessSettings = () => {
         <div className="flex justify-end">
           <button
             type="submit"
-            disabled={isLoading}
+            disabled={isLoading || isLogoLoading}
             className="inline-flex justify-center py-2 px-4 border border-transparent 
                      shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 
                      hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 
                      focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed
                      transition-colors"
           >
-            {isLoading ? "Saving..." : "Save Changes"}
+            {isLoading || isLogoLoading ? "Saving..." : "Save Changes"}
           </button>
         </div>
       </form>

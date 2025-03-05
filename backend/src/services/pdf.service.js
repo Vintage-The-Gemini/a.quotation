@@ -2,6 +2,7 @@
 const PDFDocument = require("pdfkit");
 const fs = require("fs-extra");
 const path = require("path");
+const axios = require("axios");
 
 class PDFService {
   /**
@@ -14,11 +15,14 @@ class PDFService {
   async generateQuotationPDF(quotation, template, business) {
     return new Promise(async (resolve, reject) => {
       try {
+        // Track temporary files for cleanup
+        const tempFiles = [];
+
         // Ensure temp directory exists
-        const tempDir = path.join(__dirname, "..", "..", "temp");
+        const tempDir = path.join(process.cwd(), "temp");
         await fs.ensureDir(tempDir);
 
-        // Create PDF document with customizable options
+        // Create PDF document
         const doc = new PDFDocument({
           size: "A4",
           margin: 50,
@@ -26,10 +30,6 @@ class PDFService {
           info: {
             Title: `Quotation - ${quotation.quotationNumber}`,
             Author: business?.name || "Quotation System",
-            Subject: "Quotation",
-            Keywords: "quotation, invoice, business",
-            Creator: "Quotation App",
-            Producer: "PDFKit",
           },
         });
 
@@ -49,13 +49,15 @@ class PDFService {
         });
 
         writeStream.on("finish", () => {
+          // Clean up any temporary files we created
+          this._cleanupTempFiles(tempFiles);
           resolve(filePath);
         });
 
         // Pipe output to file
         doc.pipe(writeStream);
 
-        // Get template settings or use defaults
+        // Get styles based on template
         const styles = this._getStyles(template);
 
         // Set the default font
@@ -63,7 +65,14 @@ class PDFService {
         doc.fontSize(styles.fontSize);
 
         // Add content based on template structure
-        this._addHeader(doc, quotation, business, template, styles);
+        await this._addHeader(
+          doc,
+          quotation,
+          business,
+          template,
+          styles,
+          tempFiles
+        );
         this._addCustomerInfo(doc, quotation, template, styles);
         this._addItemsTable(doc, quotation, template, styles);
         this._addTotals(doc, quotation, styles);
@@ -75,6 +84,79 @@ class PDFService {
         console.error("PDF generation error:", error);
         reject(error);
       }
+    });
+  }
+
+  /**
+   * Clean up temporary files created during PDF generation
+   */
+  _cleanupTempFiles(files) {
+    if (!files || files.length === 0) return;
+
+    files.forEach((file) => {
+      try {
+        fs.unlinkSync(file);
+        console.log(`Temporary file removed: ${file}`);
+      } catch (err) {
+        console.error(`Error removing temporary file ${file}:`, err);
+      }
+    });
+  }
+
+  /**
+   * Prepare the logo file for PDFKit
+   * PDFKit requires either a file path or a Buffer
+   */
+  async _prepareLogo(logo, tempFiles) {
+    if (!logo || !logo.url) return null;
+
+    try {
+      let logoPath;
+
+      // Handle Cloudinary URLs
+      if (logo.isCloudinary) {
+        // Download from Cloudinary to a temp file
+        const tempLogoPath = path.join(
+          process.cwd(),
+          "temp",
+          `logo-${Date.now()}.png`
+        );
+        await this._downloadFile(logo.url, tempLogoPath);
+        logoPath = tempLogoPath;
+        tempFiles.push(tempLogoPath); // Add to cleanup list
+      } else {
+        // Local file - ensure absolute path
+        logoPath = path.isAbsolute(logo.url)
+          ? logo.url
+          : path.join(process.cwd(), logo.url);
+
+        // Verify the file exists
+        await fs.access(logoPath);
+      }
+
+      return logoPath;
+    } catch (error) {
+      console.error("Error preparing logo:", error);
+      return null;
+    }
+  }
+
+  /**
+   * Download a file from a URL to local path
+   */
+  async _downloadFile(url, outputPath) {
+    const response = await axios({
+      url,
+      method: "GET",
+      responseType: "stream",
+    });
+
+    const writer = fs.createWriteStream(outputPath);
+
+    return new Promise((resolve, reject) => {
+      response.data.pipe(writer);
+      writer.on("finish", resolve);
+      writer.on("error", reject);
     });
   }
 
@@ -93,7 +175,7 @@ class PDFService {
       subheaderFontSize: 14,
       tableBorderColor: "#e0e0e0",
       tableHeaderBgColor: "#f1f3f4",
-      totalBgColor: "#ffeb3b", // Yellow highlight for total
+      totalBgColor: "#ffeb3b",
       lineHeight: 1.5,
     };
 
@@ -141,9 +223,9 @@ class PDFService {
   }
 
   /**
-   * Add header section to PDF
+   * Add header section to PDF with logo and business info
    */
-  _addHeader(doc, quotation, business, template, styles) {
+  async _addHeader(doc, quotation, business, template, styles, tempFiles) {
     // Start position
     const startY = doc.y;
     const pageWidth =
@@ -177,7 +259,7 @@ class PDFService {
       doc.fontSize(styles.fontSize).fillColor(styles.textColor);
       doc.moveDown(0.5);
 
-      // Add business contact details with proper alignment
+      // Add business contact details
       const contactInfo = [];
       if (business.email) contactInfo.push(business.email);
       if (business.phone) contactInfo.push(business.phone);
@@ -210,18 +292,33 @@ class PDFService {
       const logoHeight = 60;
 
       // If we have a logo, use it, otherwise create a placeholder
-      if (business?.logo?.url) {
+      if (business?.logo) {
         try {
-          // Try to use the actual logo
-          doc.image(business.logo.url, logoX, logoY, {
-            width: logoWidth,
-            height: logoHeight,
-            fit: [logoWidth, logoHeight],
-            align: "center",
-            valign: "center",
-          });
+          // Prepare the logo file
+          const logoPath = await this._prepareLogo(business.logo, tempFiles);
+
+          if (logoPath) {
+            // Use the logo
+            doc.image(logoPath, logoX, logoY, {
+              width: logoWidth,
+              height: logoHeight,
+              fit: [logoWidth, logoHeight],
+              align: "center",
+              valign: "center",
+            });
+          } else {
+            // Logo preparation failed, use placeholder
+            this._createLogoPlaceholder(
+              doc,
+              logoX,
+              logoY,
+              logoWidth,
+              logoHeight,
+              styles
+            );
+          }
         } catch (err) {
-          console.error("Error loading logo:", err);
+          console.error("Error adding logo to PDF:", err);
           // Fallback to placeholder if logo can't be loaded
           this._createLogoPlaceholder(
             doc,
@@ -233,7 +330,7 @@ class PDFService {
           );
         }
       } else {
-        // Create a placeholder for the logo
+        // No logo provided, create a placeholder
         this._createLogoPlaceholder(
           doc,
           logoX,
@@ -433,8 +530,7 @@ class PDFService {
 
       doc
         .fillColor(styles.primaryColor)
-        .font(styles.fontFamily, "bold")
-        .fontSize(styles.fontSize);
+        .font(`${styles.fontFamily}-Bold`, styles.fontSize);
 
       doc.text(column.label, xOffset + 5, startY + 8, {
         width: width - 10,
@@ -445,7 +541,7 @@ class PDFService {
     });
 
     // Reset font
-    doc.font(styles.fontFamily, "normal").fillColor(styles.textColor);
+    doc.font(styles.fontFamily, styles.fontSize).fillColor(styles.textColor);
 
     // Start drawing rows
     let yPosition = startY + rowHeight;
