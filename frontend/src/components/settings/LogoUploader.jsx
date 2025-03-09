@@ -1,10 +1,10 @@
 // frontend/src/components/settings/LogoUploader.jsx
 import { useState, useEffect, useRef } from "react";
 import { toast } from "react-hot-toast";
-import api from "../../services/api"; // Make sure this import is correct
+import api from "../../services/api";
 
 // Configure backend URL - adjust port to match your backend server
-const BACKEND_URL = "/api"; // Use relative path to work with proxied requests
+const BACKEND_URL = "/api";
 
 const LogoUploader = ({ currentLogo, onChange }) => {
   const [previewUrl, setPreviewUrl] = useState("");
@@ -12,6 +12,11 @@ const LogoUploader = ({ currentLogo, onChange }) => {
   const [imageError, setImageError] = useState(false);
   const [debugInfo, setDebugInfo] = useState(null);
   const fileInputRef = useRef(null);
+
+  // Generate a fallback SVG logo
+  const getFallbackLogo = () => {
+    return `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='150' height='150' viewBox='0 0 150 150'%3E%3Crect width='150' height='150' fill='%23f0f0f0'/%3E%3Ccircle cx='75' cy='75' r='60' fill='%233b82f6'/%3E%3Ctext x='75' y='85' font-family='Arial' font-size='24' text-anchor='middle' fill='white'%3ELOGO%3C/text%3E%3C/svg%3E`;
+  };
 
   // Debug helper function
   const logLogoInfo = (logo, message) => {
@@ -35,23 +40,26 @@ const LogoUploader = ({ currentLogo, onChange }) => {
     return parts[parts.length - 1];
   };
 
-  // Test the direct backend access to the file
+  // Test the direct access to the file
   const testDirectAccess = async (filename) => {
     if (!filename) return;
 
     try {
-      // Use the api service that should handle auth tokens
-      const response = await api.get(`/business/test-logo/${filename}`, {
-        responseType: "blob",
-      });
+      // Try to access the file directly through the uploads directory
+      const response = await fetch(
+        `/uploads/logos/${filename}?t=${Date.now()}`
+      );
 
-      const blobUrl = URL.createObjectURL(response.data);
-      setDebugInfo({
-        directAccessUrl: blobUrl,
-        status: "success",
-        timestamp: new Date().toISOString(),
-      });
-      return true;
+      if (response.ok) {
+        setDebugInfo({
+          directAccessUrl: `/uploads/logos/${filename}`,
+          status: "success",
+          timestamp: new Date().toISOString(),
+        });
+        return true;
+      } else {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
     } catch (error) {
       console.error("Direct access test failed:", error);
       setDebugInfo({
@@ -70,7 +78,7 @@ const LogoUploader = ({ currentLogo, onChange }) => {
         URL.revokeObjectURL(previewUrl);
       }
 
-      if (debugInfo?.directAccessUrl) {
+      if (debugInfo?.directAccessUrl?.startsWith("blob:")) {
         URL.revokeObjectURL(debugInfo.directAccessUrl);
       }
     };
@@ -83,7 +91,7 @@ const LogoUploader = ({ currentLogo, onChange }) => {
 
     if (!currentLogo) {
       logLogoInfo(currentLogo, "No logo provided");
-      setPreviewUrl("");
+      setPreviewUrl(getFallbackLogo()); // Use fallback logo
       setIsLoadingImage(false);
       return;
     }
@@ -107,19 +115,23 @@ const LogoUploader = ({ currentLogo, onChange }) => {
       if (currentLogo.isCloudinary) {
         logoUrl = currentLogo.url;
       }
+      // For data URLs (generated logos)
+      else if (currentLogo.isDataUrl) {
+        logoUrl = currentLogo.url;
+      }
       // For relative URLs (local storage)
       else {
         // Get the filename regardless of path format
         filename = getFilenameFromPath(currentLogo.url);
 
-        // Use the API relative path
-        logoUrl = `/api/business/logo`; // Use this endpoint instead of direct file access
+        // Directly use the static file path - bypassing API authentication
+        logoUrl = `/uploads/logos/${filename}?t=${Date.now()}`; // Add cache busting
       }
 
       logLogoInfo(logoUrl, "Logo URL calculated");
 
-      // Test direct access if we have a filename
-      if (filename) {
+      // Test direct access if we have a filename and it's not a data URL
+      if (filename && !currentLogo.isDataUrl) {
         testDirectAccess(filename);
       }
 
@@ -130,8 +142,8 @@ const LogoUploader = ({ currentLogo, onChange }) => {
       // Get the filename regardless of path format
       const filename = getFilenameFromPath(currentLogo);
 
-      // Use the API endpoint for logo access
-      const logoUrl = `/api/business/logo`;
+      // Directly use the static file path
+      const logoUrl = `/uploads/logos/${filename}?t=${Date.now()}`;
 
       logLogoInfo(logoUrl, "Logo URL from string");
 
@@ -141,7 +153,7 @@ const LogoUploader = ({ currentLogo, onChange }) => {
       setPreviewUrl(logoUrl);
     } else {
       logLogoInfo(currentLogo, "Unrecognized logo format");
-      setPreviewUrl("");
+      setPreviewUrl(getFallbackLogo()); // Use fallback logo
       setIsLoadingImage(false);
     }
   }, [currentLogo]);
@@ -197,7 +209,7 @@ const LogoUploader = ({ currentLogo, onChange }) => {
       URL.revokeObjectURL(previewUrl);
     }
 
-    setPreviewUrl("");
+    setPreviewUrl(getFallbackLogo()); // Use fallback logo
     setImageError(false);
     onChange(null);
 
@@ -213,11 +225,50 @@ const LogoUploader = ({ currentLogo, onChange }) => {
     console.log("Logo failed to load:", previewUrl);
     setImageError(true);
     setIsLoadingImage(false);
+
+    // If the image fails to load, use the fallback
+    if (previewUrl !== getFallbackLogo()) {
+      setPreviewUrl(getFallbackLogo());
+    }
   };
 
   const handleImageLoad = () => {
     console.log("Logo loaded successfully:", previewUrl);
     setIsLoadingImage(false);
+  };
+
+  // Generate a random colored logo
+  const generateQuickLogo = () => {
+    const colors = ["#3b82f6", "#ef4444", "#10b981", "#f59e0b", "#8b5cf6"];
+    const randomColor = colors[Math.floor(Math.random() * colors.length)];
+
+    const svgLogo = `
+      <svg xmlns="http://www.w3.org/2000/svg" width="150" height="150" viewBox="0 0 150 150">
+        <rect width="150" height="150" fill="#f0f0f0"/>
+        <circle cx="75" cy="75" r="60" fill="${randomColor}"/>
+        <text x="75" y="85" font-family="Arial" font-size="24" text-anchor="middle" fill="white">LOGO</text>
+      </svg>
+    `;
+
+    // Convert SVG to Blob
+    const blob = new Blob([svgLogo], { type: "image/svg+xml" });
+
+    // Create a File object from the Blob
+    const file = new File([blob], `logo-${Date.now()}.svg`, {
+      type: "image/svg+xml",
+    });
+
+    // Clean up previous blob URL if it exists
+    if (previewUrl && previewUrl.startsWith("blob:")) {
+      URL.revokeObjectURL(previewUrl);
+    }
+
+    const objectUrl = URL.createObjectURL(blob);
+    setPreviewUrl(objectUrl);
+    setImageError(false);
+    onChange(file);
+
+    toast.success("Generated new logo! Click Save Changes to upload it.");
   };
 
   return (
@@ -263,18 +314,20 @@ const LogoUploader = ({ currentLogo, onChange }) => {
         </div>
 
         {/* Debug display for direct access test */}
-        {debugInfo && debugInfo.directAccessUrl && (
-          <div className="mt-2">
-            <p className="text-xs text-gray-500 mb-1">
-              Direct file access test:
-            </p>
-            <img
-              src={debugInfo.directAccessUrl}
-              alt="Debug direct access"
-              className="w-16 h-16 object-contain border border-gray-300"
-            />
-          </div>
-        )}
+        {debugInfo &&
+          debugInfo.directAccessUrl &&
+          !debugInfo.directAccessUrl.startsWith("blob:") && (
+            <div className="mt-2">
+              <p className="text-xs text-gray-500 mb-1">
+                Direct file access test:
+              </p>
+              <img
+                src={debugInfo.directAccessUrl}
+                alt="Debug direct access"
+                className="w-16 h-16 object-contain border border-gray-300"
+              />
+            </div>
+          )}
       </div>
 
       <div className="flex flex-col">
@@ -299,15 +352,23 @@ const LogoUploader = ({ currentLogo, onChange }) => {
           PNG, JPG, or SVG (max 2MB)
         </p>
 
-        {(previewUrl || currentLogo) && (
+        <div className="flex flex-col mt-2 space-y-2">
+          <button
+            type="button"
+            onClick={generateQuickLogo}
+            className="text-sm text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
+          >
+            Generate Test Logo
+          </button>
+
           <button
             type="button"
             onClick={handleRemoveLogo}
-            className="mt-2 text-sm text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300"
+            className="text-sm text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300"
           >
-            Remove logo
+            Remove Logo
           </button>
-        )}
+        </div>
       </div>
     </div>
   );

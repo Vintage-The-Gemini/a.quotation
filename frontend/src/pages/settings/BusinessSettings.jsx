@@ -1,5 +1,5 @@
 // frontend/src/pages/settings/BusinessSettings.jsx
-import React, { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { toast } from "react-hot-toast";
 import api from "../../services/api";
 import LogoUploader from "../../components/settings/LogoUploader";
@@ -28,6 +28,28 @@ const BusinessSettings = () => {
   useEffect(() => {
     fetchBusinessData();
   }, []);
+
+  // If no logo is loaded after data fetch, create a default one
+  useEffect(() => {
+    if (!logo && !isLoading) {
+      console.log("No logo found, creating a default one for display");
+
+      // Create a default SVG logo as a data URL
+      const svgLogo = `
+        <svg xmlns="http://www.w3.org/2000/svg" width="150" height="150" viewBox="0 0 150 150">
+          <rect width="150" height="150" fill="#f0f0f0"/>
+          <circle cx="75" cy="75" r="60" fill="#3b82f6"/>
+          <text x="75" y="85" font-family="Arial" font-size="24" text-anchor="middle" fill="white">LOGO</text>
+        </svg>
+      `;
+
+      // Create a dummy logo object that points to the default logo
+      setLogo({
+        url: "/uploads/logos/default-logo.svg",
+        isCloudinary: false,
+      });
+    }
+  }, [logo, isLoading]);
 
   const fetchBusinessData = async () => {
     try {
@@ -61,7 +83,25 @@ const BusinessSettings = () => {
       }
     } catch (error) {
       toast.error("Failed to fetch business settings");
-      console.error(error);
+      console.error("Error fetching business data:", error);
+
+      // Set default data if fetch fails
+      setFormData({
+        name: "Your Business",
+        email: "example@business.com",
+        phone: "",
+        address: {
+          street: "",
+          city: "",
+          state: "",
+          zipCode: "",
+          country: "",
+        },
+        settings: {
+          currency: "KES",
+          quotationPrefix: "QT",
+        },
+      });
     } finally {
       setIsLoading(false);
     }
@@ -69,6 +109,31 @@ const BusinessSettings = () => {
 
   const handleLogoChange = (newLogo) => {
     setLogo(newLogo);
+  };
+
+  // Generate a random colored logo
+  const generateQuickLogo = () => {
+    const colors = ["#3b82f6", "#ef4444", "#10b981", "#f59e0b", "#8b5cf6"];
+    const randomColor = colors[Math.floor(Math.random() * colors.length)];
+
+    const svgLogo = `
+      <svg xmlns="http://www.w3.org/2000/svg" width="150" height="150" viewBox="0 0 150 150">
+        <rect width="150" height="150" fill="#f0f0f0"/>
+        <circle cx="75" cy="75" r="60" fill="${randomColor}"/>
+        <text x="75" y="85" font-family="Arial" font-size="24" text-anchor="middle" fill="white">LOGO</text>
+      </svg>
+    `;
+
+    // Convert SVG to Blob
+    const blob = new Blob([svgLogo], { type: "image/svg+xml" });
+
+    // Create a File object from the Blob
+    const file = new File([blob], `logo-${Date.now()}.svg`, {
+      type: "image/svg+xml",
+    });
+
+    setLogo(file);
+    toast.success("Generated new logo! Click Save Changes to upload it.");
   };
 
   const handleSubmit = async (e) => {
@@ -97,8 +162,10 @@ const BusinessSettings = () => {
         fetchBusinessData(); // Refresh data
       }
     } catch (error) {
-      toast.error("Failed to update business settings");
-      console.error(error);
+      console.error("Error saving business settings:", error);
+      toast.error(
+        error.response?.data?.message || "Failed to update business settings"
+      );
     } finally {
       setIsSaving(false);
     }
@@ -119,6 +186,18 @@ const BusinessSettings = () => {
             Business Logo
           </label>
           <LogoUploader currentLogo={logo} onChange={handleLogoChange} />
+
+          {/* Add the quick logo generation button */}
+          <button
+            type="button"
+            onClick={generateQuickLogo}
+            className="mt-4 inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+          >
+            Generate Demo Logo
+          </button>
+          <p className="mt-1 text-sm text-gray-500">
+            Click to create a sample logo for testing
+          </p>
         </div>
 
         {/* Business Info */}
@@ -133,7 +212,7 @@ const BusinessSettings = () => {
               onChange={(e) =>
                 setFormData({ ...formData, name: e.target.value })
               }
-              className="w-full p-2 border rounded-md"
+              className="w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white"
               required
             />
           </div>
@@ -146,7 +225,7 @@ const BusinessSettings = () => {
               onChange={(e) =>
                 setFormData({ ...formData, email: e.target.value })
               }
-              className="w-full p-2 border rounded-md"
+              className="w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white"
               required
             />
           </div>
@@ -159,7 +238,7 @@ const BusinessSettings = () => {
               onChange={(e) =>
                 setFormData({ ...formData, phone: e.target.value })
               }
-              className="w-full p-2 border rounded-md"
+              className="w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white"
             />
           </div>
 
@@ -173,7 +252,7 @@ const BusinessSettings = () => {
                   settings: { ...formData.settings, currency: e.target.value },
                 })
               }
-              className="w-full p-2 border rounded-md"
+              className="w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white"
             >
               <option value="KES">KES - Kenyan Shilling</option>
               <option value="USD">USD - US Dollar</option>
@@ -200,7 +279,7 @@ const BusinessSettings = () => {
                     address: { ...formData.address, street: e.target.value },
                   })
                 }
-                className="w-full p-2 border rounded-md"
+                className="w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white"
               />
             </div>
 
@@ -215,7 +294,7 @@ const BusinessSettings = () => {
                     address: { ...formData.address, city: e.target.value },
                   })
                 }
-                className="w-full p-2 border rounded-md"
+                className="w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white"
               />
             </div>
 
@@ -232,7 +311,7 @@ const BusinessSettings = () => {
                     address: { ...formData.address, state: e.target.value },
                   })
                 }
-                className="w-full p-2 border rounded-md"
+                className="w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white"
               />
             </div>
 
@@ -249,7 +328,7 @@ const BusinessSettings = () => {
                     address: { ...formData.address, zipCode: e.target.value },
                   })
                 }
-                className="w-full p-2 border rounded-md"
+                className="w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white"
               />
             </div>
 
@@ -264,7 +343,7 @@ const BusinessSettings = () => {
                     address: { ...formData.address, country: e.target.value },
                   })
                 }
-                className="w-full p-2 border rounded-md"
+                className="w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white"
               />
             </div>
           </div>
@@ -275,7 +354,7 @@ const BusinessSettings = () => {
           <button
             type="submit"
             disabled={isSaving}
-            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
+            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 dark:bg-blue-500 dark:hover:bg-blue-600"
           >
             {isSaving ? "Saving..." : "Save Changes"}
           </button>
